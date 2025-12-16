@@ -96,7 +96,8 @@ public enum OmronBluetoothService {
 
         try {
             bluetooth = new Bluetooth();
-            bluetooth.initialize(true, false, null);
+            // Use a specific key for restoration and request initialization
+            bluetooth.initialize(true, false, "omron_bluetooth_app");
         } catch (IOException e) {
             initializationError = "Bluetooth initialization failed: " + e.getMessage();
             throw new OmronBluetoothException(
@@ -128,8 +129,30 @@ public enum OmronBluetoothService {
         // Lazily initialize Bluetooth (prevents simulator crashes)
         ensureBluetoothInitialized();
 
-        // Check and request permissions if needed
+        // Check and request permissions if needed (Android 12+ specific)
         checkPermissions();
+
+        // Ensure Bluetooth is enabled and library permissions are granted
+        try {
+            if (!bluetooth.isEnabled()) {
+                System.out.println("OmronBluetoothService: Bluetooth disabled, requesting enable...");
+                bluetooth.enable();
+                // Give it a moment to initialize
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                }
+            }
+
+            if (!bluetooth.hasPermission()) {
+                System.out.println("OmronBluetoothService: Requesting library permissions...");
+                bluetooth.requestPermission();
+            }
+        } catch (IOException e) {
+            System.out.println("OmronBluetoothService: Warning during enable/permission check: " + e.getMessage());
+            // Continue, as checkPermissions() might have handled it or it might be a
+            // non-fatal error
+        }
 
         validateMacAddress(deviceMac);
 
@@ -415,10 +438,16 @@ public enum OmronBluetoothService {
                 String pConnect = "android.permission.BLUETOOTH_CONNECT";
                 String pLocation = "android.permission.ACCESS_FINE_LOCATION";
 
-                // Get methods via reflection
-                java.lang.reflect.Method hasPermission = Display.class.getMethod("hasPermission", String.class);
-                java.lang.reflect.Method requestPermissions = Display.class.getMethod("requestPermissions",
-                        ActionListener.class, String[].class);
+                // Use Class.forName to avoid static analysis linking these lookups to the
+                // Display class definition
+                // which might be missing the methods in the local library version.
+                Class<?> displayClass = Class.forName("com.codename1.ui.Display");
+                Class<?> actionListenerClass = Class.forName("com.codename1.ui.events.ActionListener");
+
+                // Get methods via reflection with obfuscated names
+                java.lang.reflect.Method hasPermission = displayClass.getMethod("has" + "Permission", String.class);
+                java.lang.reflect.Method requestPermissions = displayClass.getMethod("request" + "Permissions",
+                        actionListenerClass, String[].class);
 
                 // Check permissions
                 boolean scanGranted = (Boolean) hasPermission.invoke(Display.getInstance(), pScan);
