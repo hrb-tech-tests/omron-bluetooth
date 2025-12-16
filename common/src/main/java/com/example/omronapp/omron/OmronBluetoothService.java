@@ -2,6 +2,7 @@ package com.example.omronapp.omron;
 
 import com.codename1.bluetoothle.Bluetooth;
 import com.codename1.ui.Display;
+import com.codename1.ui.CN;
 import com.codename1.ui.events.ActionEvent;
 import com.codename1.ui.events.ActionListener;
 import com.codename1.util.Base64;
@@ -49,7 +50,7 @@ public enum OmronBluetoothService {
     private static final String DEVICE_MODEL = "HEM-7144T2";
 
     // Timeout for data collection (milliseconds)
-    private static final long DATA_COLLECTION_TIMEOUT = 20000;
+    private static final long DATA_COLLECTION_TIMEOUT = 30000;
 
     // Lazy-initialized Bluetooth instance (not initialized in constructor to avoid
     // simulator issues)
@@ -127,6 +128,9 @@ public enum OmronBluetoothService {
         // Lazily initialize Bluetooth (prevents simulator crashes)
         ensureBluetoothInitialized();
 
+        // Check and request permissions if needed
+        checkPermissions();
+
         validateMacAddress(deviceMac);
 
         final List<OmronMeasurement> measurements = new ArrayList<>();
@@ -164,7 +168,8 @@ public enum OmronBluetoothService {
                     long elapsed = System.currentTimeMillis() - startTime;
                     if (elapsed >= DATA_COLLECTION_TIMEOUT) {
                         System.out.println("OmronBluetoothService: Timeout waiting for data");
-                        throw new OmronBluetoothException(OmronBluetoothException.ErrorType.TIMEOUT);
+                        throw new OmronBluetoothException(OmronBluetoothException.ErrorType.TIMEOUT,
+                                "after " + (DATA_COLLECTION_TIMEOUT / 1000) + " seconds");
                     }
                     lock.wait(1000); // Wait with 1 second intervals
                 }
@@ -395,6 +400,27 @@ public enum OmronBluetoothService {
             }
         }
         return true;
+    }
+
+    /**
+     * Checks and requests necessary Android permissions.
+     */
+    private void checkPermissions() {
+        if ("and".equals(Display.getInstance().getPlatformName())) {
+            if (!CN.hasPermission("android.permission.BLUETOOTH_SCAN") ||
+                    !CN.hasPermission("android.permission.BLUETOOTH_CONNECT") ||
+                    !CN.hasPermission("android.permission.ACCESS_FINE_LOCATION")) {
+
+                CN.requestPermissions(new ActionListener() {
+                    @Override
+                    public void actionPerformed(ActionEvent evt) {
+                        // Permissions processed
+                    }
+                }, "android.permission.BLUETOOTH_SCAN",
+                        "android.permission.BLUETOOTH_CONNECT",
+                        "android.permission.ACCESS_FINE_LOCATION");
+            }
+        }
     }
 
     /**
