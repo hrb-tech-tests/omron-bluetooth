@@ -49,7 +49,7 @@ public enum OmronBluetoothService {
     private static final String DEVICE_MODEL = "HEM-7144T2";
 
     // Timeout for data collection (milliseconds)
-    private static final long DATA_COLLECTION_TIMEOUT = 5000;
+    private static final long DATA_COLLECTION_TIMEOUT = 20000;
 
     // Lazy-initialized Bluetooth instance (not initialized in constructor to avoid
     // simulator issues)
@@ -135,14 +135,18 @@ public enum OmronBluetoothService {
         final OmronBluetoothException[] error = { null };
 
         try {
+            System.out.println("OmronBluetoothService: Connecting to " + deviceMac);
             // Connect to device
             bluetooth.connect(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent evt) {
+                    System.out.println("OmronBluetoothService: Connected to " + deviceMac);
                     try {
                         // Subscribe to blood pressure notifications
                         subscribeToMeasurements(deviceMac, measurements, lock, completed, error);
                     } catch (Exception e) {
+                        System.out.println("OmronBluetoothService: Error in connection callback: " + e.getMessage());
+                        e.printStackTrace();
                         synchronized (lock) {
                             error[0] = new OmronBluetoothException(
                                     OmronBluetoothException.ErrorType.DATA_TRANSFER_FAILED, e);
@@ -159,6 +163,7 @@ public enum OmronBluetoothService {
                 while (!completed[0]) {
                     long elapsed = System.currentTimeMillis() - startTime;
                     if (elapsed >= DATA_COLLECTION_TIMEOUT) {
+                        System.out.println("OmronBluetoothService: Timeout waiting for data");
                         throw new OmronBluetoothException(OmronBluetoothException.ErrorType.TIMEOUT);
                     }
                     lock.wait(1000); // Wait with 1 second intervals
@@ -192,12 +197,14 @@ public enum OmronBluetoothService {
             Object lock, boolean[] completed,
             OmronBluetoothException[] error) {
         try {
+            System.out.println("OmronBluetoothService: Subscribing to measurements");
             bluetooth.subscribe(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent evt) {
                     try {
                         Map<String, Object> result = (Map<String, Object>) evt.getSource();
                         String value = (String) result.get("value");
+                        System.out.println("OmronBluetoothService: Received notification. Value: " + value);
 
                         if (value != null && !value.isEmpty()) {
                             // Decode and parse measurement
