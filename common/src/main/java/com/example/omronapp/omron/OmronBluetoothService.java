@@ -407,11 +407,11 @@ public enum OmronBluetoothService {
      */
     private void checkPermissions() {
         if ("and".equals(Display.getInstance().getPlatformName())) {
-            if (!CN.hasPermission("android.permission.BLUETOOTH_SCAN") ||
-                    !CN.hasPermission("android.permission.BLUETOOTH_CONNECT") ||
-                    !CN.hasPermission("android.permission.ACCESS_FINE_LOCATION")) {
+            if (!Display.getInstance().hasPermission("android.permission.BLUETOOTH_SCAN") ||
+                    !Display.getInstance().hasPermission("android.permission.BLUETOOTH_CONNECT") ||
+                    !Display.getInstance().hasPermission("android.permission.ACCESS_FINE_LOCATION")) {
 
-                CN.requestPermissions(new ActionListener() {
+                Display.getInstance().requestPermissions(new ActionListener() {
                     @Override
                     public void actionPerformed(ActionEvent evt) {
                         // Permissions processed
