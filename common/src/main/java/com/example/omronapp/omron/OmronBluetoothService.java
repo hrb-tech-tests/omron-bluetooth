@@ -395,32 +395,20 @@ public enum OmronBluetoothService {
     }
 
     /**
-     * Validates MAC address format manually without using regex.
-     * Expected format: AA:BB:CC:DD:EE:FF or AA-BB-CC-DD-EE-FF
+     * Validates MAC address format.
+     * Relaxed validation to allow various formats (colon, dash, space, no
+     * separator).
      * 
      * @param mac the MAC address string to validate
      * @return true if valid format, false otherwise
      */
     private boolean isValidMacFormat(String mac) {
-        // MAC address should be exactly 17 characters: XX:XX:XX:XX:XX:XX
-        if (mac.length() != 17) {
+        // Just check if it has enough characters to potentially be a MAC address
+        // A raw MAC is 12 hex digits. With separators it's 17.
+        // We'll be permissive and let the connection attempt fail/timeout if it's
+        // wrong.
+        if (mac.length() < 12) {
             return false;
-        }
-
-        for (int i = 0; i < mac.length(); i++) {
-            char c = mac.charAt(i);
-
-            // Every 3rd character (index 2, 5, 8, 11, 14) should be ':' or '-'
-            if (i % 3 == 2) {
-                if (c != ':' && c != '-') {
-                    return false;
-                }
-            } else {
-                // Other characters should be hexadecimal digits
-                if (!isHexDigit(c)) {
-                    return false;
-                }
-            }
         }
         return true;
     }

@@ -38,6 +38,7 @@ public class OmronExampleForm extends Form {
     private final TextField macAddressField;
     private final TextArea resultArea;
     private final Label statusLabel;
+    private final Label formatLabel;
     private final Button scanButton;
 
     public OmronExampleForm() {
@@ -46,6 +47,11 @@ public class OmronExampleForm extends Form {
         // Status label
         statusLabel = new Label("Enter device MAC address and tap 'Get Data'");
         statusLabel.getAllStyles().setFgColor(0x0000FF);
+
+        // Format label (initially empty)
+        formatLabel = new Label(" ");
+        formatLabel.getAllStyles().setFgColor(0x0000FF);
+        formatLabel.getAllStyles().setFont(Font.createSystemFont(Font.FACE_SYSTEM, Font.STYLE_ITALIC, Font.SIZE_SMALL));
 
         // MAC address input field
         macAddressField = createMacAddressField();
@@ -69,6 +75,7 @@ public class OmronExampleForm extends Form {
         macContainer.add(BorderLayout.CENTER, macAddressField);
 
         add(statusLabel);
+        add(formatLabel);
         add(macContainer);
         add(scanButton);
         add(new Label("Result (JSON):"));
@@ -154,61 +161,161 @@ public class OmronExampleForm extends Form {
     /**
      * Retrieves data from the OMRON device using the entered MAC address.
      */
+    /**
+     * Generates the 4 required MAC address formats from a raw input.
+     */
+    private java.util.List<String> generateMacFormats(String input) {
+        java.util.List<String> formats = new java.util.ArrayList<>();
+        if (input == null)
+            return formats;
+
+        // Strip everything except hex digits
+        String raw = input.replaceAll("[^0-9A-Fa-f]", "").toUpperCase();
+
+        if (raw.length() != 12) {
+            return formats; // Invalid length for a MAC address
+        }
+
+        // 1. Colon separator: AA:BB:CC:DD:EE:FF
+        StringBuilder colon = new StringBuilder();
+        // 2. Dash separator: AA-BB-CC-DD-EE-FF
+        StringBuilder dash = new StringBuilder();
+        // 3. Space separator: AA BB CC DD EE FF
+        StringBuilder space = new StringBuilder();
+
+        for (int i = 0; i < 12; i += 2) {
+            String byteStr = raw.substring(i, i + 2);
+
+            colon.append(byteStr);
+            dash.append(byteStr);
+            space.append(byteStr);
+
+            if (i < 10) {
+                colon.append(":");
+                dash.append("-");
+                space.append(" ");
+            }
+        }
+
+        formats.add(colon.toString());
+        formats.add(dash.toString());
+        formats.add(space.toString());
+        formats.add(raw); // 4. No separator
+
+        return formats;
+    }
+
+    /**
+     * Retrieves data from the OMRON device using the entered MAC address.
+     * Tries multiple formats sequentially.
+     */
     private void retrieveDeviceData() {
-        String deviceMac = macAddressField.getText();
+        String inputMac = macAddressField.getText();
 
-        // Validate input
-        if (deviceMac == null || deviceMac.trim().isEmpty()) {
-            Dialog.show("Input Required",
-                    "Please enter the device MAC address.\nFormat: AA:BB:CC:DD:EE:FF",
-                    "OK", null);
+        // Basic validation that we have something that looks like a MAC address
+        if (inputMac == null || inputMac.trim().isEmpty()) {
+            Dialog.show("Input Required", "Please enter the device MAC address.", "OK", null);
             return;
         }
 
-        deviceMac = deviceMac.trim().toUpperCase();
+        // Generate formats
+        java.util.List<String> macFormats = generateMacFormats(inputMac);
+        String[] formatDescriptions = {
+                "Colon Separated (AA:BB...)",
+                "Dash Separated (AA-BB...)",
+                "Space Separated (AA BB...)",
+                "No Separator (AABB...)"
+        };
 
-        // Validate format
-        if (!isValidMacAddress(deviceMac)) {
+        if (macFormats.isEmpty()) {
             Dialog.show("Invalid Format",
-                    "MAC address must be in format:\nAA:BB:CC:DD:EE:FF\n\nExample: 5C:02:72:AB:CD:EF",
+                    "Could not parse MAC address. Please ensure you entered 12 hex digits.",
                     "OK", null);
             return;
         }
 
-        // Save for future use
-        saveMacAddress(deviceMac);
+        // Save the raw input for convenience
+        saveMacAddress(inputMac);
 
         // Update UI state
-        statusLabel.setText("Connecting to " + deviceMac + "...");
-        resultArea.setText("");
         scanButton.setEnabled(false);
         macAddressField.setEnabled(false);
+        resultArea.setText("");
+        formatLabel.setText(" "); // Clear previous format
 
-        // Capture for use in thread
-        final String finalDeviceMac = deviceMac;
-
-        // Run in background thread to avoid blocking UI
+        // Run in background thread
         new Thread(() -> {
-            try {
-                // Single method call - returns complete JSON
-                String jsonData = OmronBluetoothService.INSTANCE.getDataFromDevice(finalDeviceMac);
+            boolean success = false;
+            String lastError = "Unknown error";
 
-                // Update UI on EDT
+            for (int i = 0; i < macFormats.size(); i++) {
+                String currentMac = macFormats.get(i);
+                String formatDesc = (i < formatDescriptions.length) ? formatDescriptions[i] : "Unknown Format";
+
+                final int attemptNum = i + 1;
+                final int total = macFormats.size();
+
+                // Update status on EDT
                 CN.callSerially(() -> {
-                    statusLabel.setText("Success! Data retrieved from " + finalDeviceMac);
-                    resultArea.setText(formatJson(jsonData));
-                    resetUIState();
+                    statusLabel.setText("Attempt " + attemptNum + "/" + total + ": " + formatDesc);
+                    formatLabel.setText("Connecting to: " + currentMac);
                 });
 
-            } catch (OmronBluetoothException ex) {
-                // Handle specific error types
+                try {
+                    // Try to connect
+                    String jsonData = OmronBluetoothService.INSTANCE.getDataFromDevice(currentMac);
+
+                    // If we get here, it worked!
+                    CN.callSerially(() -> {
+                        statusLabel.setText("Success! Connected using " + formatDesc);
+                        formatLabel.setText("Device: " + currentMac);
+                        resultArea.setText(formatJson(jsonData));
+                        resetUIState();
+                    });
+                    success = true;
+                    break; // Exit the loop
+
+                } catch (OmronBluetoothException ex) {
+                    lastError = ex.getMessage();
+                    System.out.println("Failed attempt " + attemptNum + " with " + currentMac + ": " + ex.getMessage());
+
+                    // If this wasn't the last attempt, wait 10 seconds
+                    if (i < macFormats.size() - 1) {
+                        CN.callSerially(() -> {
+                            statusLabel.setText("Attempt " + attemptNum + " failed. Waiting 10s...");
+                        });
+                        try {
+                            Thread.sleep(10000);
+                        } catch (InterruptedException ie) {
+                            break; // Stop if interrupted
+                        }
+                    }
+                } catch (Exception e) {
+                    lastError = e.getMessage();
+                    e.printStackTrace();
+                    if (i < macFormats.size() - 1) {
+                        try {
+                            Thread.sleep(10000);
+                        } catch (InterruptedException ie) {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!success) {
+                final String finalError = lastError;
                 CN.callSerially(() -> {
-                    statusLabel.setText("Error: " + ex.getErrorType());
-                    resultArea.setText(ex.getMessage());
-                    Dialog.show("Connection Error", ex.getMessage(), "OK", null);
+                    statusLabel.setText("All attempts failed.");
+                    formatLabel.setText(" ");
+                    resultArea.setText("Last error: " + finalError);
+                    Dialog.show("Connection Failed",
+                            "Failed to connect using any MAC format.\nLast error: " + finalError,
+                            "OK", null);
                     resetUIState();
                 });
             }
+
         }).start();
     }
 
