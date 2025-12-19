@@ -63,6 +63,14 @@ public class OmronBluetoothServiceDebug {
     }
 
     /**
+     * Reset the abort flag
+     */
+    public void resetAbort() {
+        aborted = false;
+        log("Abort flag reset");
+    }
+
+    /**
      * Get all debug logs collected during the last operation
      */
     public List<String> getDebugLogs() {

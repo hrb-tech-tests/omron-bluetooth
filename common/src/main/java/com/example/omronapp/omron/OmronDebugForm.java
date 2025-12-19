@@ -215,6 +215,9 @@ public class OmronDebugForm extends Form {
 
         saveMacAddress(inputMac);
 
+        // Reset abort flag before starting new cycle
+        debugService.resetAbort();
+
         // Update UI state - disable buttons during attempts
         scanButton.setEnabled(false);
         // Use a sync icon to indicate progress
