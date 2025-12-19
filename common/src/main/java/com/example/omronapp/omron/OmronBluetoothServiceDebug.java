@@ -14,6 +14,7 @@ import java.util.Map;
 import com.codename1.location.LocationManager;
 import com.codename1.location.LocationListener;
 import com.codename1.location.Location;
+import com.codename1.ui.Dialog;
 
 /**
  * ENHANCED DEBUG VERSION of OmronBluetoothService
@@ -692,197 +693,9 @@ public class OmronBluetoothServiceDebug {
      */
     private void checkPermissions() {
         if ("and".equals(Display.getInstance().getPlatformName())) {
-            log("=== AGGRESSIVE PERMISSION & STATE CHECK (Debug 8) ===");
+            log("=== REFINED PERMISSION & STATE CHECK ===");
 
-            // 0. System Properties & Environment
-            try {
-                log("System Properties:");
-                log("  android.targetSDKVersion: "
-                        + Display.getInstance().getProperty("android.targetSDKVersion", "unknown"));
-                log("  platform: " + Display.getInstance().getPlatformName());
-                log("  isSimulator: " + Display.getInstance().isSimulator());
-            } catch (Exception e) {
-            }
-
-            // 1. Discover methods for Display, CN, and Implementation
-            discoverMethods("com.codename1.ui.Display");
-            discoverMethods("com.codename1.ui.CN");
-            try {
-                Class<?> utilClass = Class.forName("com.codename1.io.Util");
-                java.lang.reflect.Method getImpl = utilClass.getDeclaredMethod("getImplementation");
-                getImpl.setAccessible(true);
-                Object impl = getImpl.invoke(null);
-                if (impl != null) {
-                    discoverMethods(impl.getClass().getName());
-                } else {
-                    log("  Implementation object is NULL");
-                }
-            } catch (Exception e) {
-                log("  Failed to get implementation object via reflection: " + e.getMessage());
-            }
-
-            // 2. Bluetooth Object Inspection
-            try {
-                log("Bluetooth Object Inspection:");
-                log("  Class: " + bluetooth.getClass().getName());
-                discoverMethods(bluetooth.getClass().getName());
-            } catch (Exception e) {
-            }
-
-            // 3. Check already connected first
-            checkAlreadyConnected();
-
-            // 4. Request Android 12+ permissions via Resilient Reflection & Fallbacks
-            try {
-                log("Requesting Android 12+ permissions via Resilient Reflection & Fallbacks...");
-                String[] permissions = {
-                        "android.permission.BLUETOOTH_SCAN",
-                        "android.permission.BLUETOOTH_CONNECT",
-                        "android.permission.ACCESS_FINE_LOCATION",
-                        "android.permission.ACCESS_COARSE_LOCATION"
-                };
-
-                Class<?> displayClass = Class.forName("com.codename1.ui.Display");
-                Class<?> cnClass = Class.forName("com.codename1.ui.CN");
-                Class<?> actionListenerClass = Class.forName("com.codename1.ui.events.ActionListener");
-
-                // Try to find hasPermission on Display then CN
-                java.lang.reflect.Method hasPermission = null;
-                Object permissionTarget = null;
-
-                try {
-                    hasPermission = displayClass.getMethod("hasPermission", String.class);
-                    permissionTarget = Display.getInstance();
-                    log("  Found hasPermission on Display");
-                } catch (Exception e1) {
-                    try {
-                        hasPermission = cnClass.getMethod("hasPermission", String.class);
-                        permissionTarget = null; // Static method on CN
-                        log("  Found hasPermission on CN");
-                    } catch (Exception e2) {
-                        log("  Could not find hasPermission on Display or CN");
-                    }
-                }
-
-                // Fallback check: canExecute
-                if (hasPermission == null) {
-                    try {
-                        log("  Trying fallback: Display.canExecute(permission)");
-                        for (String p : permissions) {
-                            Boolean can = Display.getInstance().canExecute(p);
-                            log("    canExecute(" + p + "): " + can);
-                        }
-                    } catch (Exception e) {
-                        log("    canExecute check failed: " + e.getMessage());
-                    }
-                }
-
-                // Try to find requestPermissions on Display then CN
-                java.lang.reflect.Method requestPermissions = null;
-                Object requestTarget = null;
-                try {
-                    requestPermissions = displayClass.getMethod("requestPermissions", actionListenerClass,
-                            String[].class);
-                    requestTarget = Display.getInstance();
-                    log("  Found requestPermissions(ActionListener, String[]) on Display");
-                } catch (Exception e1) {
-                    try {
-                        requestPermissions = displayClass.getMethod("requestPermissions", String[].class,
-                                actionListenerClass);
-                        requestTarget = Display.getInstance();
-                        log("  Found requestPermissions(String[], ActionListener) on Display");
-                    } catch (Exception e2) {
-                        try {
-                            requestPermissions = cnClass.getMethod("requestPermissions", String[].class,
-                                    actionListenerClass);
-                            requestTarget = null; // Static
-                            log("  Found requestPermissions on CN");
-                        } catch (Exception e3) {
-                            log("  Could not find requestPermissions on Display or CN");
-                        }
-                    }
-                }
-
-                final Object pLock = new Object();
-                final boolean[] pDone = { false };
-                final java.lang.reflect.Method finalHas = hasPermission;
-                final java.lang.reflect.Method finalReq = requestPermissions;
-                final Object finalPTarget = permissionTarget;
-                final Object finalRTarget = requestTarget;
-
-                Display.getInstance().callSerially(() -> {
-                    try {
-                        if (finalHas != null) {
-                            for (String p : permissions) {
-                                boolean granted = (Boolean) finalHas.invoke(finalPTarget, p);
-                                log("  Current state of " + p + ": " + granted);
-                            }
-                        }
-
-                        if (finalReq != null) {
-                            log("  Triggering requestPermissions dialog...");
-                            if (finalReq.getParameterTypes()[0].equals(actionListenerClass)) {
-                                finalReq.invoke(finalRTarget, new ActionListener<ActionEvent>() {
-                                    @Override
-                                    public void actionPerformed(ActionEvent evt) {
-                                        log("  Permissions request callback triggered");
-                                        synchronized (pLock) {
-                                            pDone[0] = true;
-                                            pLock.notifyAll();
-                                        }
-                                    }
-                                }, permissions);
-                            } else {
-                                finalReq.invoke(finalRTarget, permissions, new ActionListener<ActionEvent>() {
-                                    @Override
-                                    public void actionPerformed(ActionEvent evt) {
-                                        log("  Permissions request callback triggered");
-                                        synchronized (pLock) {
-                                            pDone[0] = true;
-                                            pLock.notifyAll();
-                                        }
-                                    }
-                                });
-                            }
-                        } else {
-                            log("  Skipping requestPermissions (method not found)");
-                            synchronized (pLock) {
-                                pDone[0] = true;
-                                pLock.notifyAll();
-                            }
-                        }
-                    } catch (Exception e) {
-                        log("  Reflection call failed inside EDT: " + e.getMessage());
-                        synchronized (pLock) {
-                            pDone[0] = true;
-                            pLock.notifyAll();
-                        }
-                    }
-                });
-
-                synchronized (pLock) {
-                    if (!pDone[0]) {
-                        log("  Waiting for user to respond to permission dialogs...");
-                        long pWaitStart = System.currentTimeMillis();
-                        while (!pDone[0]) {
-                            if (aborted) {
-                                log("  Permission wait aborted");
-                                break;
-                            }
-                            if (System.currentTimeMillis() - pWaitStart > 20000) {
-                                log("  Permission wait timeout");
-                                break;
-                            }
-                            pLock.wait(500);
-                        }
-                    }
-                }
-                log("  Permission wait completed. Done=" + pDone[0]);
-            } catch (Exception e) {
-                log("  Reflection permission request failed: " + e.getMessage());
-            }
-
-            // 5. Check Bluetooth state
+            // 1. Check Bluetooth state
             try {
                 log("Bluetooth.isEnabled(): " + bluetooth.isEnabled());
                 if (!bluetooth.isEnabled()) {
@@ -893,69 +706,63 @@ public class OmronBluetoothServiceDebug {
                 log("Bluetooth enable failed: " + e.getMessage());
             }
 
-            // 6. Check Location state via LocationManager
+            // 2. Check Location state
             try {
-                log("Checking LocationManager state...");
-                discoverMethods("com.codename1.location.LocationManager");
-                LocationManager lm = Display.getInstance().getLocationManager();
-                if (lm == null) {
-                    log("  LocationManager from Display is NULL. Trying static retrieval...");
-                    try {
-                        java.lang.reflect.Method getLM = LocationManager.class.getMethod("getLocationManager");
-                        lm = (LocationManager) getLM.invoke(null);
-                        log("  Static LocationManager.getLocationManager() returned: " + (lm != null));
-                    } catch (Exception e) {
-                        log("  Static retrieval failed: " + e.getMessage());
-                    }
-                }
-
-                if (lm != null) {
-                    final LocationManager finalLm = lm;
-                    log("  LocationManager found. Checking GPS...");
-                    try {
-                        final boolean[] gps = { false };
-                        final boolean[] gpsDone = { false };
-                        final Object gpsLock = new Object();
-                        new Thread(() -> {
-                            try {
-                                gps[0] = finalLm.isGPSEnabled();
-                                synchronized (gpsLock) {
-                                    gpsDone[0] = true;
-                                    gpsLock.notifyAll();
-                                }
-                            } catch (Exception e) {
-                            }
-                        }).start();
-                        synchronized (gpsLock) {
-                            if (!gpsDone[0])
-                                gpsLock.wait(500);
-                        }
-                        log("  GPS Enabled (LocationManager): " + (gpsDone[0] ? gps[0] : "TIMEOUT"));
-                    } catch (Exception e) {
-                        log("  isGPSEnabled check failed: " + e.getMessage());
-                    }
-
-                    lm.setLocationListener(new LocationListener() {
-                        @Override
-                        public void locationUpdated(Location location) {
-                            log("  Location update received: " + location.getLatitude() + ", "
-                                    + location.getLongitude());
-                            finalLm.setLocationListener(null);
-                        }
-
-                        @Override
-                        public void providerStateChanged(int newState) {
-                            log("  Location provider state changed: " + newState);
-                        }
+                boolean locEnabled = bluetooth.isLocationEnabled();
+                log("Bluetooth.isLocationEnabled(): " + locEnabled);
+                if (!locEnabled) {
+                    log("!!! LOCATION SERVICES ARE DISABLED !!!");
+                    Display.getInstance().callSerially(() -> {
+                        Dialog.show("Location Disabled",
+                                "Bluetooth scanning requires Location Services to be enabled on Android.\n\n" +
+                                        "Please turn on GPS/Location in your system settings and try again.",
+                                "OK", null);
                     });
-                } else {
-                    log("  LocationManager is STILL NULL");
+
+                    log("Attempting to trigger Location request...");
+                    bluetooth.requestLocation();
                 }
             } catch (Exception e) {
-                log("  LocationManager check/trigger failed: " + e.getMessage());
+                log("Location check failed: " + e.getMessage());
             }
 
-            // 7. Request Library permissions
+            // 3. Advanced Permission Check via Reflection (checkForPermission)
+            try {
+                String[] permissions = {
+                        "android.permission.BLUETOOTH_SCAN",
+                        "android.permission.BLUETOOTH_CONNECT",
+                        "android.permission.ACCESS_FINE_LOCATION"
+                };
+
+                Object impl = com.codename1.io.Util.getImplementation();
+                if (impl != null) {
+                    java.lang.reflect.Method check = null;
+                    try {
+                        check = impl.getClass().getMethod("checkForPermission", String.class, String.class);
+                    } catch (Exception e) {
+                    }
+
+                    if (check != null) {
+                        for (String p : permissions) {
+                            try {
+                                boolean granted = (Boolean) check.invoke(impl, p, "Bluetooth operation");
+                                log("  Permission " + p + ": " + granted);
+                            } catch (Exception e) {
+                                log("  Failed to check " + p + ": " + e.getMessage());
+                            }
+                        }
+                    } else {
+                        log("  checkForPermission method not found in implementation");
+                    }
+                }
+            } catch (Exception e) {
+                log("Advanced permission check failed: " + e.getMessage());
+            }
+
+            // 4. Check already connected
+            checkAlreadyConnected();
+
+            // 5. Standard Library Permission Request
             try {
                 log("Requesting Library permissions...");
                 boolean reqResult = bluetooth.requestPermission();
@@ -964,27 +771,7 @@ public class OmronBluetoothServiceDebug {
                 log("  Bluetooth.requestPermission() failed: " + e.getMessage());
             }
 
-            // 8. Request Library Location
-            try {
-                boolean locEnabled = bluetooth.isLocationEnabled();
-                log("  Bluetooth.isLocationEnabled(): " + locEnabled);
-                if (!locEnabled) {
-                    log("  Location not enabled in library. Starting background request...");
-                    new Thread(() -> {
-                        try {
-                            boolean reqLocResult = bluetooth.requestLocation();
-                            log("  Async Bluetooth.requestLocation() returned: " + reqLocResult);
-                        } catch (Exception e) {
-                            log("  Async Bluetooth.requestLocation() failed/timed out: " + e.getMessage());
-                        }
-                    }).start();
-                    Thread.sleep(200);
-                }
-            } catch (Exception e) {
-                log("  Location request trigger failed: " + e.getMessage());
-            }
-
-            // 9. Final status check
+            // 6. Final status check
             try {
                 log("Final Bluetooth.hasPermission(): " + bluetooth.hasPermission());
                 log("Final Bluetooth.isLocationEnabled(): " + bluetooth.isLocationEnabled());
@@ -1045,40 +832,4 @@ public class OmronBluetoothServiceDebug {
         }
     }
 
-    /**
-     * Diagnostic: List all methods of a class
-     */
-    private void discoverMethods(String className) {
-        try {
-            log("Discovering ALL methods for: " + className);
-            Class<?> clazz = Class.forName(className);
-
-            log("  --- Public Methods ---");
-            java.lang.reflect.Method[] methods = clazz.getMethods();
-            for (java.lang.reflect.Method m : methods) {
-                log("    Method: " + m.getName() + "(" + getParamTypes(m) + ") returns "
-                        + m.getReturnType().getSimpleName());
-            }
-
-            log("  --- Declared Methods ---");
-            java.lang.reflect.Method[] declared = clazz.getDeclaredMethods();
-            for (java.lang.reflect.Method m : declared) {
-                log("    Declared: " + m.getName() + "(" + getParamTypes(m) + ") returns "
-                        + m.getReturnType().getSimpleName());
-            }
-        } catch (Exception e) {
-            log("  Failed to discover methods for " + className + ": " + e.getMessage());
-        }
-    }
-
-    private String getParamTypes(java.lang.reflect.Method m) {
-        StringBuilder sb = new StringBuilder();
-        Class<?>[] params = m.getParameterTypes();
-        for (int i = 0; i < params.length; i++) {
-            sb.append(params[i].getSimpleName());
-            if (i < params.length - 1)
-                sb.append(", ");
-        }
-        return sb.toString();
-    }
 }
