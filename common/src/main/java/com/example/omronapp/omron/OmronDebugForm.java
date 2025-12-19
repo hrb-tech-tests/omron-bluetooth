@@ -45,7 +45,7 @@ public class OmronDebugForm extends Form {
     private final OmronBluetoothServiceDebug debugService;
 
     public OmronDebugForm() {
-        super("OMRON Debug 8", BoxLayout.y());
+        super("OMRON Debug 9", BoxLayout.y());
 
         debugService = new OmronBluetoothServiceDebug();
 
