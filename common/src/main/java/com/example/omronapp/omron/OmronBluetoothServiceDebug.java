@@ -733,9 +733,8 @@ public class OmronBluetoothServiceDebug {
                     "android.permission.ACCESS_FINE_LOCATION"
             };
 
+            Object impl = null;
             try {
-
-                Object impl = null;
                 try {
                     Class<?> utilClass = Class.forName("com.codename1.io.Util");
                     java.lang.reflect.Method getImpl = utilClass.getDeclaredMethod("getImplementation");
