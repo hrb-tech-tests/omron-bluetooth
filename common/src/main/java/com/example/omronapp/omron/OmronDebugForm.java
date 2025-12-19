@@ -354,8 +354,10 @@ public class OmronDebugForm extends Form {
                                     "Last error: " + finalError,
                             "OK", null);
 
-                    // Enable share button so user can share failure logs
-                    shareLogsButton.setEnabled(true);
+                    // Enable share button only if not aborted
+                    if (!debugService.isAborted()) {
+                        shareLogsButton.setEnabled(true);
+                    }
                     resetUIState();
                 });
             }
@@ -393,6 +395,11 @@ public class OmronDebugForm extends Form {
 
         logArea.setText(sb.toString());
 
+        // Enable share button if we have logs and not aborted
+        if (sb.length() > 0 && !debugService.isAborted()) {
+            shareLogsButton.setEnabled(true);
+        }
+
         // Clear the logs in the service after they've been moved to the UI
         // to avoid duplication in the next updateLogDisplay call
         debugService.clearDebugLogs();
@@ -409,12 +416,9 @@ public class OmronDebugForm extends Form {
             return;
         }
 
-        // Use Codename One's Display.sendMessage for sharing
+        // Use Codename One's Display.share for better compatibility
         try {
-            com.codename1.ui.Display.getInstance().sendMessage(
-                    new String[] {}, // Empty recipients - will open share dialog
-                    "OMRON Bluetooth Debug Logs",
-                    new com.codename1.messaging.Message(logs));
+            com.codename1.ui.Display.getInstance().share(logs, null, "text/plain");
         } catch (Exception e) {
             Dialog.show("Share Failed",
                     "Could not open share dialog: " + e.getMessage() + "\n\n" +
