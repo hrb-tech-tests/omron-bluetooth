@@ -809,26 +809,56 @@ public class OmronBluetoothServiceDebug {
                             java.lang.reflect.Method req = null;
                             Object target = null;
 
+                            // AGGRESSIVE DISCOVERY
+                            log("  Searching for 'requestPermissions' on Display...");
+                            for (java.lang.reflect.Method m : displayClass.getDeclaredMethods()) {
+                                if (m.getName().equals("requestPermissions")) {
+                                    log("    Found on Display: " + m.toString());
+                                }
+                            }
+                            log("  Searching for 'requestPermissions' on CN...");
+                            for (java.lang.reflect.Method m : cnClass.getDeclaredMethods()) {
+                                if (m.getName().equals("requestPermissions")) {
+                                    log("    Found on CN: " + m.toString());
+                                }
+                            }
+                            if (impl != null) {
+                                log("  Searching for 'requestPermissions' on Implementation...");
+                                for (java.lang.reflect.Method m : impl.getClass().getDeclaredMethods()) {
+                                    if (m.getName().equals("requestPermissions")) {
+                                        log("    Found on Impl: " + m.toString());
+                                    }
+                                }
+                            }
+
                             // Try Display.requestPermissions(String[], ActionListener)
                             try {
                                 req = displayClass.getMethod("requestPermissions", String[].class, actionListenerClass);
                                 target = Display.getInstance();
-                                log("  Found requestPermissions(String[], ActionListener) on Display");
+                                log("  Selected: Display.requestPermissions(String[], ActionListener)");
                             } catch (Exception e1) {
                                 // Try Display.requestPermissions(ActionListener, String[])
                                 try {
                                     req = displayClass.getMethod("requestPermissions", actionListenerClass,
                                             String[].class);
                                     target = Display.getInstance();
-                                    log("  Found requestPermissions(ActionListener, String[]) on Display");
+                                    log("  Selected: Display.requestPermissions(ActionListener, String[])");
                                 } catch (Exception e2) {
                                     // Try CN.requestPermissions(String[], ActionListener)
                                     try {
                                         req = cnClass.getMethod("requestPermissions", String[].class,
                                                 actionListenerClass);
                                         target = null; // Static
-                                        log("  Found requestPermissions on CN");
+                                        log("  Selected: CN.requestPermissions(String[], ActionListener)");
                                     } catch (Exception e3) {
+                                        // Try CN.requestPermissions(ActionListener, String[])
+                                        try {
+                                            req = cnClass.getMethod("requestPermissions", actionListenerClass,
+                                                    String[].class);
+                                            target = null; // Static
+                                            log("  Selected: CN.requestPermissions(ActionListener, String[])");
+                                        } catch (Exception e4) {
+                                        }
                                     }
                                 }
                             }
