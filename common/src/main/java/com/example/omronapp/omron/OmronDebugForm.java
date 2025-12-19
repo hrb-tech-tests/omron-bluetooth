@@ -17,6 +17,9 @@ import com.codename1.ui.plaf.Style;
 import com.codename1.ui.plaf.UIManager;
 import com.codename1.components.InfiniteProgress;
 
+import com.codename1.io.FileSystemStorage;
+import com.codename1.io.Util;
+import java.io.OutputStream;
 import java.util.List;
 
 /**
@@ -416,9 +419,19 @@ public class OmronDebugForm extends Form {
             return;
         }
 
-        // Use Codename One's Display.share for better compatibility
+        // Use file-based sharing for large logs to bypass system intent limits
         try {
-            com.codename1.ui.Display.getInstance().share(logs, null, "text/plain");
+            String fileName = "omron_debug_logs.txt";
+            String path = FileSystemStorage.getInstance().getAppHomePath() + fileName;
+
+            // Write logs to file
+            try (OutputStream os = FileSystemStorage.getInstance().openOutputStream(path)) {
+                os.write(logs.getBytes("UTF-8"));
+            }
+
+            // Share the file
+            com.codename1.ui.Display.getInstance().share(null, path, "text/plain");
+
         } catch (Exception e) {
             Dialog.show("Share Failed",
                     "Could not open share dialog: " + e.getMessage() + "\n\n" +
