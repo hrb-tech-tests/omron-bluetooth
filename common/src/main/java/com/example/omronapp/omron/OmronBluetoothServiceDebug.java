@@ -198,7 +198,7 @@ public class OmronBluetoothServiceDebug {
             log("Calling bluetooth.connect() for: " + deviceMac);
 
             // Connect to device
-            bluetooth.connect(new ActionListener() {
+            bluetooth.connect(new ActionListener<ActionEvent>() {
                 @Override
                 public void actionPerformed(ActionEvent evt) {
                     synchronized (lock) {
@@ -313,7 +313,7 @@ public class OmronBluetoothServiceDebug {
     private void testDeviceInformation(String deviceMac) {
         try {
             log("Attempting to read manufacturer name...");
-            bluetooth.read(new ActionListener() {
+            bluetooth.read(new ActionListener<ActionEvent>() {
                 @Override
                 public void actionPerformed(ActionEvent evt) {
                     try {
@@ -348,7 +348,7 @@ public class OmronBluetoothServiceDebug {
             log("Service UUID: " + BLOOD_PRESSURE_SERVICE_UUID);
             log("Characteristic UUID: " + BLOOD_PRESSURE_MEASUREMENT_UUID);
 
-            bluetooth.subscribe(new ActionListener() {
+            bluetooth.subscribe(new ActionListener<ActionEvent>() {
                 @Override
                 public void actionPerformed(ActionEvent evt) {
                     synchronized (lock) {
@@ -649,49 +649,122 @@ public class OmronBluetoothServiceDebug {
      */
     private void checkPermissions() {
         if ("and".equals(Display.getInstance().getPlatformName())) {
-            log("=== AGGRESSIVE PERMISSION & STATE CHECK (Debug 6) ===");
+            log("=== AGGRESSIVE PERMISSION & STATE CHECK (Debug 7) ===");
+
+            // 0. Discover methods for Display and CN to find the right APIs
+            discoverMethods("com.codename1.ui.Display");
+            discoverMethods("com.codename1.ui.CN");
 
             // 1. Check already connected first - try with NULL services too
             checkAlreadyConnected();
 
-            // 2. Request Android 12+ permissions via Reflection (to avoid compilation
-            // issues)
+            // 2. Request Android 12+ permissions via Resilient Reflection
             try {
-                log("Requesting Android 12+ permissions via Reflection...");
+                log("Requesting Android 12+ permissions via Resilient Reflection...");
                 String[] permissions = {
                         "android.permission.BLUETOOTH_SCAN",
                         "android.permission.BLUETOOTH_CONNECT",
-                        "android.permission.ACCESS_FINE_LOCATION"
+                        "android.permission.ACCESS_FINE_LOCATION",
+                        "android.permission.ACCESS_COARSE_LOCATION"
                 };
 
                 Class<?> displayClass = Class.forName("com.codename1.ui.Display");
+                Class<?> cnClass = Class.forName("com.codename1.ui.CN");
                 Class<?> actionListenerClass = Class.forName("com.codename1.ui.events.ActionListener");
 
-                java.lang.reflect.Method hasPermission = displayClass.getMethod("hasPermission", String.class);
-                java.lang.reflect.Method requestPermissions = displayClass.getMethod("requestPermissions",
-                        actionListenerClass, String[].class);
+                // Try to find hasPermission on Display then CN
+                java.lang.reflect.Method hasPermission = null;
+                Object permissionTarget = null;
+
+                try {
+                    hasPermission = displayClass.getMethod("hasPermission", String.class);
+                    permissionTarget = Display.getInstance();
+                    log("  Found hasPermission on Display");
+                } catch (Exception e1) {
+                    try {
+                        hasPermission = cnClass.getMethod("hasPermission", String.class);
+                        permissionTarget = null; // Static method on CN
+                        log("  Found hasPermission on CN");
+                    } catch (Exception e2) {
+                        log("  Could not find hasPermission on Display or CN");
+                    }
+                }
+
+                // Try to find requestPermissions on Display then CN
+                java.lang.reflect.Method requestPermissions = null;
+                Object requestTarget = null;
+                try {
+                    requestPermissions = displayClass.getMethod("requestPermissions", actionListenerClass,
+                            String[].class);
+                    requestTarget = Display.getInstance();
+                    log("  Found requestPermissions(ActionListener, String[]) on Display");
+                } catch (Exception e1) {
+                    try {
+                        requestPermissions = displayClass.getMethod("requestPermissions", String[].class,
+                                actionListenerClass);
+                        requestTarget = Display.getInstance();
+                        log("  Found requestPermissions(String[], ActionListener) on Display");
+                    } catch (Exception e2) {
+                        try {
+                            requestPermissions = cnClass.getMethod("requestPermissions", String[].class,
+                                    actionListenerClass);
+                            requestTarget = null; // Static
+                            log("  Found requestPermissions on CN");
+                        } catch (Exception e3) {
+                            log("  Could not find requestPermissions on Display or CN");
+                        }
+                    }
+                }
 
                 final Object pLock = new Object();
                 final boolean[] pDone = { false };
+                final java.lang.reflect.Method finalHas = hasPermission;
+                final java.lang.reflect.Method finalReq = requestPermissions;
+                final Object finalPTarget = permissionTarget;
+                final Object finalRTarget = requestTarget;
 
                 Display.getInstance().callSerially(() -> {
                     try {
-                        for (String p : permissions) {
-                            boolean granted = (Boolean) hasPermission.invoke(Display.getInstance(), p);
-                            log("  Current state of " + p + ": " + granted);
+                        if (finalHas != null) {
+                            for (String p : permissions) {
+                                boolean granted = (Boolean) finalHas.invoke(finalPTarget, p);
+                                log("  Current state of " + p + ": " + granted);
+                            }
                         }
 
-                        log("  Triggering requestPermissions dialog...");
-                        requestPermissions.invoke(Display.getInstance(), new ActionListener<ActionEvent>() {
-                            @Override
-                            public void actionPerformed(ActionEvent evt) {
-                                log("  Permissions request callback triggered");
-                                synchronized (pLock) {
-                                    pDone[0] = true;
-                                    pLock.notifyAll();
-                                }
+                        if (finalReq != null) {
+                            log("  Triggering requestPermissions dialog...");
+                            // Handle different signatures
+                            if (finalReq.getParameterTypes()[0].equals(actionListenerClass)) {
+                                finalReq.invoke(finalRTarget, new ActionListener<ActionEvent>() {
+                                    @Override
+                                    public void actionPerformed(ActionEvent evt) {
+                                        log("  Permissions request callback triggered");
+                                        synchronized (pLock) {
+                                            pDone[0] = true;
+                                            pLock.notifyAll();
+                                        }
+                                    }
+                                }, permissions);
+                            } else {
+                                finalReq.invoke(finalRTarget, permissions, new ActionListener<ActionEvent>() {
+                                    @Override
+                                    public void actionPerformed(ActionEvent evt) {
+                                        log("  Permissions request callback triggered");
+                                        synchronized (pLock) {
+                                            pDone[0] = true;
+                                            pLock.notifyAll();
+                                        }
+                                    }
+                                });
                             }
-                        }, permissions);
+                        } else {
+                            log("  Skipping requestPermissions (method not found)");
+                            synchronized (pLock) {
+                                pDone[0] = true;
+                                pLock.notifyAll();
+                            }
+                        }
                     } catch (Exception e) {
                         log("  Reflection call failed inside EDT: " + e.getMessage());
                         synchronized (pLock) {
@@ -723,10 +796,14 @@ public class OmronBluetoothServiceDebug {
                 log("Bluetooth enable failed: " + e.getMessage());
             }
 
-            // 4. Check Location state via LocationManager
+            // 4. Check Location state via LocationManager (Try both Display and CN)
             try {
                 log("Checking LocationManager state...");
-                final LocationManager lm = Display.getInstance().getLocationManager();
+                LocationManager lm = Display.getInstance().getLocationManager();
+                if (lm == null) {
+                    log("  LocationManager from Display is NULL");
+                }
+
                 if (lm != null) {
                     log("  LocationManager found. Checking GPS...");
                     try {
@@ -734,9 +811,10 @@ public class OmronBluetoothServiceDebug {
                         final boolean[] gps = { false };
                         final boolean[] gpsDone = { false };
                         final Object gpsLock = new Object();
+                        final LocationManager finalLm = lm;
                         new Thread(() -> {
                             try {
-                                gps[0] = lm.isGPSEnabled();
+                                gps[0] = finalLm.isGPSEnabled();
                                 synchronized (gpsLock) {
                                     gpsDone[0] = true;
                                     gpsLock.notifyAll();
@@ -809,10 +887,16 @@ public class OmronBluetoothServiceDebug {
                 log("Final Bluetooth.isLocationEnabled(): " + bluetooth.isLocationEnabled());
 
                 Class<?> displayClass = Class.forName("com.codename1.ui.Display");
-                java.lang.reflect.Method hasPermission = displayClass.getMethod("hasPermission", String.class);
-                boolean fineLocation = (Boolean) hasPermission.invoke(Display.getInstance(),
-                        "android.permission.ACCESS_FINE_LOCATION");
-                log("Final Display.hasPermission(ACCESS_FINE_LOCATION): " + fineLocation);
+                java.lang.reflect.Method hasPermission = null;
+                try {
+                    hasPermission = displayClass.getMethod("hasPermission", String.class);
+                } catch (Exception e) {
+                }
+                if (hasPermission != null) {
+                    boolean fineLocation = (Boolean) hasPermission.invoke(Display.getInstance(),
+                            "android.permission.ACCESS_FINE_LOCATION");
+                    log("Final Display.hasPermission(ACCESS_FINE_LOCATION): " + fineLocation);
+                }
             } catch (Exception e) {
                 log("Final status check failed: " + e.getMessage());
             }
@@ -856,6 +940,7 @@ public class OmronBluetoothServiceDebug {
         try {
             Object source = evt.getSource();
             if (source instanceof ArrayList) {
+                @SuppressWarnings("unchecked")
                 ArrayList<Map<String, Object>> devices = (ArrayList<Map<String, Object>>) source;
                 log("    Found " + devices.size() + " connected devices");
                 for (Map<String, Object> device : devices) {
