@@ -800,6 +800,9 @@ public class OmronBluetoothServiceDebug {
                     final Object pLock = new Object();
                     final boolean[] pDone = { false };
 
+                    final Object finalImpl = impl;
+                    final String[] finalPermissions = permissions;
+
                     Display.getInstance().callSerially(() -> {
                         try {
                             Class<?> displayClass = Class.forName("com.codename1.ui.Display");
@@ -822,9 +825,9 @@ public class OmronBluetoothServiceDebug {
                                     log("    Found on CN: " + m.toString());
                                 }
                             }
-                            if (impl != null) {
+                            if (finalImpl != null) {
                                 log("  Searching for 'requestPermissions' on Implementation...");
-                                for (java.lang.reflect.Method m : impl.getClass().getDeclaredMethods()) {
+                                for (java.lang.reflect.Method m : finalImpl.getClass().getDeclaredMethods()) {
                                     if (m.getName().equals("requestPermissions")) {
                                         log("    Found on Impl: " + m.toString());
                                     }
@@ -873,9 +876,9 @@ public class OmronBluetoothServiceDebug {
                                 };
 
                                 if (req.getParameterTypes()[0].equals(String[].class)) {
-                                    req.invoke(target, permissions, callback);
+                                    req.invoke(target, finalPermissions, callback);
                                 } else {
-                                    req.invoke(target, callback, permissions);
+                                    req.invoke(target, callback, finalPermissions);
                                 }
                             } else {
                                 log("  !!! COULD NOT FIND requestPermissions METHOD !!!");
