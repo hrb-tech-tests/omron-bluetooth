@@ -727,12 +727,13 @@ public class OmronBluetoothServiceDebug {
             }
 
             // 3. Advanced Permission Check via Reflection (checkForPermission)
+            String[] permissions = {
+                    "android.permission.BLUETOOTH_SCAN",
+                    "android.permission.BLUETOOTH_CONNECT",
+                    "android.permission.ACCESS_FINE_LOCATION"
+            };
+
             try {
-                String[] permissions = {
-                        "android.permission.BLUETOOTH_SCAN",
-                        "android.permission.BLUETOOTH_CONNECT",
-                        "android.permission.ACCESS_FINE_LOCATION"
-                };
 
                 Object impl = null;
                 try {
