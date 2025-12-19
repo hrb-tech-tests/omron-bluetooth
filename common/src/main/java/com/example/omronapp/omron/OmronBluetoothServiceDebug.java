@@ -56,6 +56,13 @@ public class OmronBluetoothServiceDebug {
     }
 
     /**
+     * Check if the operation has been aborted
+     */
+    public boolean isAborted() {
+        return aborted;
+    }
+
+    /**
      * Get all debug logs collected during the last operation
      */
     public List<String> getDebugLogs() {
@@ -142,6 +149,10 @@ public class OmronBluetoothServiceDebug {
 
         log("=== STARTING DATA RETRIEVAL ===");
         log("Target Device MAC: " + deviceMac);
+
+        if (aborted) {
+            throw new OmronBluetoothException(OmronBluetoothException.ErrorType.ABORTED);
+        }
 
         // Initialize Bluetooth
         ensureBluetoothInitialized();
@@ -552,6 +563,11 @@ public class OmronBluetoothServiceDebug {
             throws InterruptedException {
         log("Scan start (Services: " + (services != null ? services.toString() : "All") + ")");
 
+        if (aborted) {
+            log("Scan aborted before start");
+            return false;
+        }
+
         final Object scanLock = new Object();
         final boolean[] found = { false };
         final int[] totalDiscovered = { 0 };
@@ -603,6 +619,10 @@ public class OmronBluetoothServiceDebug {
                     long elapsed = System.currentTimeMillis() - start;
                     if (elapsed >= timeoutMs) {
                         log("Scan timeout reached - " + totalDiscovered[0] + " devices seen total");
+                        break;
+                    }
+                    if (aborted) {
+                        log("Scan aborted during wait");
                         break;
                     }
                     scanLock.wait(1000);
@@ -835,7 +855,18 @@ public class OmronBluetoothServiceDebug {
                 synchronized (pLock) {
                     if (!pDone[0]) {
                         log("  Waiting for user to respond to permission dialogs...");
-                        pLock.wait(20000);
+                        long pWaitStart = System.currentTimeMillis();
+                        while (!pDone[0]) {
+                            if (aborted) {
+                                log("  Permission wait aborted");
+                                break;
+                            }
+                            if (System.currentTimeMillis() - pWaitStart > 20000) {
+                                log("  Permission wait timeout");
+                                break;
+                            }
+                            pLock.wait(500);
+                        }
                     }
                 }
                 log("  Permission wait completed. Done=" + pDone[0]);

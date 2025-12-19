@@ -247,6 +247,9 @@ public class OmronDebugForm extends Form {
             String lastError = "Unknown error";
 
             for (int i = 0; i < macFormats.size(); i++) {
+                if (debugService.isAborted()) {
+                    break;
+                }
                 String currentMac = macFormats.get(i);
                 String formatDesc = (i < formatDescriptions.length) ? formatDescriptions[i] : "Unknown Format";
 
@@ -303,6 +306,10 @@ public class OmronDebugForm extends Form {
                         updateLogDisplay();
                     });
 
+                    if (ex.getErrorType() == OmronBluetoothException.ErrorType.ABORTED) {
+                        break;
+                    }
+
                     if (i < macFormats.size() - 1) {
                         CN.callSerially(() -> {
                             statusLabel.setText("Attempt " + attemptNum + " failed. Waiting 10s...");
@@ -357,6 +364,12 @@ public class OmronDebugForm extends Form {
      * Update the log display with latest debug logs
      */
     private void updateLogDisplay() {
+        if (debugService.isAborted()) {
+            logArea.setText("");
+            debugService.clearDebugLogs();
+            return;
+        }
+
         List<String> logs = debugService.getDebugLogs();
         StringBuilder sb = new StringBuilder();
 
