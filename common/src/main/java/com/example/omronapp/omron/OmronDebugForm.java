@@ -204,8 +204,6 @@ public class OmronDebugForm extends Form {
         java.util.List<String> macFormats = generateMacFormats(inputMac);
         String[] formatDescriptions = {
                 "Colon Separated (AA:BB...)",
-                "Dash Separated (AA-BB...)",
-                "Space Separated (AA BB...)",
                 "No Separator (AABB...)"
         };
 
@@ -318,10 +316,10 @@ public class OmronDebugForm extends Form {
 
                     if (i < macFormats.size() - 1) {
                         CN.callSerially(() -> {
-                            statusLabel.setText("Attempt " + attemptNum + " failed. Waiting 10s...");
+                            statusLabel.setText("Attempt " + attemptNum + " failed. Waiting 1s...");
                         });
                         try {
-                            Thread.sleep(10000);
+                            Thread.sleep(1000);
                         } catch (InterruptedException ie) {
                             break;
                         }
@@ -336,7 +334,7 @@ public class OmronDebugForm extends Form {
 
                     if (i < macFormats.size() - 1) {
                         try {
-                            Thread.sleep(10000);
+                            Thread.sleep(1000);
                         } catch (InterruptedException ie) {
                             break;
                         }
@@ -481,27 +479,17 @@ public class OmronDebugForm extends Form {
         }
 
         StringBuilder colon = new StringBuilder();
-        StringBuilder dash = new StringBuilder();
-        StringBuilder space = new StringBuilder();
 
         for (int i = 0; i < 12; i += 2) {
             String byteStr = raw.substring(i, i + 2);
-
             colon.append(byteStr);
-            dash.append(byteStr);
-            space.append(byteStr);
-
             if (i < 10) {
                 colon.append(":");
-                dash.append("-");
-                space.append(" ");
             }
         }
 
-        formats.add(colon.toString());
-        formats.add(dash.toString());
-        formats.add(space.toString());
-        formats.add(raw);
+        formats.add(colon.toString()); // AA:BB:CC:DD:EE:FF
+        formats.add(raw); // AABBCCDDEEFF
 
         return formats;
     }
