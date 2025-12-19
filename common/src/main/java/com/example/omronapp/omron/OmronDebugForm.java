@@ -39,7 +39,7 @@ public class OmronDebugForm extends Form {
     private final OmronBluetoothServiceDebug debugService;
 
     public OmronDebugForm() {
-        super("OMRON Debug Mode", BoxLayout.y());
+        super("OMRON Debug 6", BoxLayout.y());
 
         debugService = new OmronBluetoothServiceDebug();
 
@@ -92,7 +92,7 @@ public class OmronDebugForm extends Form {
                 .setFont(Font.createSystemFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_SMALL));
         clearLogsButton.addActionListener(e -> {
             logArea.setText("");
-            OmronBluetoothServiceDebug.clearDebugLogs();
+            debugService.clearDebugLogs();
             statusLabel.setText("Logs cleared");
             shareLogsButton.setEnabled(false);
         });
@@ -243,7 +243,7 @@ public class OmronDebugForm extends Form {
                 // Update status on EDT
                 CN.callSerially(() -> {
                     statusLabel.setText("Attempt " + attemptNum + "/" + total + ": " + formatDesc);
-                    formatLabel.setText("Connecting to: " + currentMac);
+                    formatLabel.setText("Processing: " + currentMac);
                     updateLogDisplay();
                 });
 
@@ -333,7 +333,7 @@ public class OmronDebugForm extends Form {
      * Update the log display with latest debug logs
      */
     private void updateLogDisplay() {
-        List<String> logs = OmronBluetoothServiceDebug.getDebugLogs();
+        List<String> logs = debugService.getDebugLogs();
         StringBuilder sb = new StringBuilder();
 
         // Get existing logs
@@ -352,6 +352,10 @@ public class OmronDebugForm extends Form {
         }
 
         logArea.setText(sb.toString());
+
+        // Clear the logs in the service after they've been moved to the UI
+        // to avoid duplication in the next updateLogDisplay call
+        debugService.clearDebugLogs();
     }
 
     /**
