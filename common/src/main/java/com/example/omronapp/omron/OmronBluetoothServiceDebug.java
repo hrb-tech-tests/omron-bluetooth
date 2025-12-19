@@ -771,9 +771,115 @@ public class OmronBluetoothServiceDebug {
             // 4. Check already connected
             checkAlreadyConnected();
 
-            // 5. Standard Library Permission Request
+            // 5. Trigger System Permission Request if needed
             try {
-                log("Requesting Library permissions...");
+                boolean needsRequest = false;
+                if (impl != null) {
+                    java.lang.reflect.Method check = null;
+                    try {
+                        check = impl.getClass().getMethod("checkForPermission", String.class, String.class);
+                    } catch (Exception e) {
+                    }
+
+                    if (check != null) {
+                        for (String p : permissions) {
+                            try {
+                                if (!(Boolean) check.invoke(impl, p, "Bluetooth operation")) {
+                                    needsRequest = true;
+                                    break;
+                                }
+                            } catch (Exception e) {
+                            }
+                        }
+                    }
+                }
+
+                if (needsRequest) {
+                    log("System permissions missing. Triggering request dialog...");
+
+                    final Object pLock = new Object();
+                    final boolean[] pDone = { false };
+
+                    Display.getInstance().callSerially(() -> {
+                        try {
+                            Class<?> displayClass = Class.forName("com.codename1.ui.Display");
+                            Class<?> cnClass = Class.forName("com.codename1.ui.CN");
+                            Class<?> actionListenerClass = Class.forName("com.codename1.ui.events.ActionListener");
+
+                            java.lang.reflect.Method req = null;
+                            Object target = null;
+
+                            // Try Display.requestPermissions(String[], ActionListener)
+                            try {
+                                req = displayClass.getMethod("requestPermissions", String[].class, actionListenerClass);
+                                target = Display.getInstance();
+                                log("  Found requestPermissions(String[], ActionListener) on Display");
+                            } catch (Exception e1) {
+                                // Try Display.requestPermissions(ActionListener, String[])
+                                try {
+                                    req = displayClass.getMethod("requestPermissions", actionListenerClass,
+                                            String[].class);
+                                    target = Display.getInstance();
+                                    log("  Found requestPermissions(ActionListener, String[]) on Display");
+                                } catch (Exception e2) {
+                                    // Try CN.requestPermissions(String[], ActionListener)
+                                    try {
+                                        req = cnClass.getMethod("requestPermissions", String[].class,
+                                                actionListenerClass);
+                                        target = null; // Static
+                                        log("  Found requestPermissions on CN");
+                                    } catch (Exception e3) {
+                                    }
+                                }
+                            }
+
+                            if (req != null) {
+                                ActionListener<ActionEvent> callback = evt -> {
+                                    log("  Permissions request callback triggered");
+                                    synchronized (pLock) {
+                                        pDone[0] = true;
+                                        pLock.notifyAll();
+                                    }
+                                };
+
+                                if (req.getParameterTypes()[0].equals(String[].class)) {
+                                    req.invoke(target, permissions, callback);
+                                } else {
+                                    req.invoke(target, callback, permissions);
+                                }
+                            } else {
+                                log("  !!! COULD NOT FIND requestPermissions METHOD !!!");
+                                synchronized (pLock) {
+                                    pDone[0] = true;
+                                    pLock.notifyAll();
+                                }
+                            }
+                        } catch (Exception e) {
+                            log("  Error triggering requestPermissions: " + e.getMessage());
+                            synchronized (pLock) {
+                                pDone[0] = true;
+                                pLock.notifyAll();
+                            }
+                        }
+                    });
+
+                    synchronized (pLock) {
+                        if (!pDone[0]) {
+                            log("  Waiting for user response to permission dialog...");
+                            pLock.wait(20000); // Wait up to 20s
+                        }
+                    }
+                    log("  Permission request phase completed");
+                } else {
+                    log("All system permissions already granted");
+                }
+            } catch (Exception e) {
+                log("Permission request logic failed: " + e.getMessage());
+            }
+
+            // 6. Standard Library Permission Request (as fallback)
+            try {
+                log("Requesting Library permissions (fallback)...");
                 boolean reqResult = bluetooth.requestPermission();
                 log("  Bluetooth.requestPermission() returned: " + reqResult);
             } catch (Exception e) {
