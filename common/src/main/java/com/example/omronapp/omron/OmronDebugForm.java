@@ -14,6 +14,8 @@ import com.codename1.ui.TextField;
 import com.codename1.ui.layouts.BorderLayout;
 import com.codename1.ui.layouts.BoxLayout;
 import com.codename1.ui.plaf.Style;
+import com.codename1.ui.plaf.UIManager;
+import com.codename1.components.InfiniteProgress;
 
 import java.util.List;
 
@@ -35,11 +37,12 @@ public class OmronDebugForm extends Form {
     private final Label formatLabel;
     private final Button scanButton;
     private final Button clearLogsButton;
+    private final Button abortButton;
     private final Button shareLogsButton;
     private final OmronBluetoothServiceDebug debugService;
 
     public OmronDebugForm() {
-        super("OMRON Debug 7", BoxLayout.y());
+        super("OMRON Debug 8", BoxLayout.y());
 
         debugService = new OmronBluetoothServiceDebug();
 
@@ -97,6 +100,22 @@ public class OmronDebugForm extends Form {
             shareLogsButton.setEnabled(false);
         });
 
+        // Abort & Clear button
+        abortButton = new Button("Abort & Clear");
+        abortButton.getAllStyles().setBgColor(0xAA0000); // Darker red
+        abortButton.getAllStyles().setFgColor(0xFFFFFF);
+        abortButton.getAllStyles().setBgTransparency(200);
+        abortButton.getAllStyles().setFont(Font.createSystemFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_SMALL));
+        abortButton.setEnabled(false); // Only enabled during scan
+        abortButton.addActionListener(e -> {
+            debugService.abort();
+            logArea.setText("");
+            debugService.clearDebugLogs();
+            statusLabel.setText("Aborted and logs cleared");
+            shareLogsButton.setEnabled(false);
+            resetUIState();
+        });
+
         // Layout
         Container macContainer = new Container(new BorderLayout());
         macContainer.add(BorderLayout.WEST, new Label("MAC:"));
@@ -113,6 +132,7 @@ public class OmronDebugForm extends Form {
         add(buttonContainer);
         add(new Label("Debug Logs (Accumulated):"));
         add(logArea);
+        add(abortButton);
 
         // Load last used MAC address
         loadLastMacAddress();
@@ -197,9 +217,13 @@ public class OmronDebugForm extends Form {
 
         // Update UI state - disable buttons during attempts
         scanButton.setEnabled(false);
+        // Use a sync icon to indicate progress
+        scanButton.setIcon(FontImage.createMaterial(FontImage.MATERIAL_SYNC, scanButton.getUnselectedStyle()));
+
         macAddressField.setEnabled(false);
         clearLogsButton.setEnabled(false);
         shareLogsButton.setEnabled(false);
+        abortButton.setEnabled(true);
 
         // DON'T clear logs - accumulate across all attempts
         // Add separator if this is not the first run
@@ -405,8 +429,10 @@ public class OmronDebugForm extends Form {
 
     private void resetUIState() {
         scanButton.setEnabled(true);
+        scanButton.setIcon(null);
         macAddressField.setEnabled(true);
         clearLogsButton.setEnabled(true);
+        abortButton.setEnabled(false);
         // shareLogsButton state is managed separately
     }
 

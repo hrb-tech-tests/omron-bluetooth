@@ -14,7 +14,8 @@ public class OmronBluetoothException extends Exception {
         INVALID_DATA("Received invalid or corrupted data"),
         TIMEOUT("Operation timed out"),
         BLUETOOTH_DISABLED("Bluetooth is not enabled"),
-        PERMISSION_DENIED("Bluetooth permission denied");
+        PERMISSION_DENIED("Bluetooth permission denied"),
+        ABORTED("Operation aborted by user");
 
         private final String description;
 

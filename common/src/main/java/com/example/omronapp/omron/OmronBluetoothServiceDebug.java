@@ -45,6 +45,15 @@ public class OmronBluetoothServiceDebug {
     private Bluetooth bluetooth;
     private boolean bluetoothInitialized = false;
     private String initializationError = null;
+    private volatile boolean aborted = false;
+
+    /**
+     * Abort the current operation
+     */
+    public void abort() {
+        aborted = true;
+        log("!!! ABORT REQUESTED BY USER !!!");
+    }
 
     /**
      * Get all debug logs collected during the last operation
@@ -129,6 +138,7 @@ public class OmronBluetoothServiceDebug {
         // Reset debug logs and start timer
         clearDebugLogs();
         startTime = System.currentTimeMillis();
+        aborted = false;
 
         log("=== STARTING DATA RETRIEVAL ===");
         log("Target Device MAC: " + deviceMac);
@@ -254,6 +264,11 @@ public class OmronBluetoothServiceDebug {
                                 connectionEstablished[0],
                                 subscriptionStarted[0],
                                 notificationCount[0]));
+                    }
+
+                    if (aborted) {
+                        log("!!! OPERATION ABORTED DURING WAIT !!!");
+                        throw new OmronBluetoothException(OmronBluetoothException.ErrorType.ABORTED);
                     }
 
                     if (elapsed >= DATA_COLLECTION_TIMEOUT) {
@@ -649,18 +664,49 @@ public class OmronBluetoothServiceDebug {
      */
     private void checkPermissions() {
         if ("and".equals(Display.getInstance().getPlatformName())) {
-            log("=== AGGRESSIVE PERMISSION & STATE CHECK (Debug 7) ===");
+            log("=== AGGRESSIVE PERMISSION & STATE CHECK (Debug 8) ===");
 
-            // 0. Discover methods for Display and CN to find the right APIs
+            // 0. System Properties & Environment
+            try {
+                log("System Properties:");
+                log("  android.targetSDKVersion: "
+                        + Display.getInstance().getProperty("android.targetSDKVersion", "unknown"));
+                log("  platform: " + Display.getInstance().getPlatformName());
+                log("  isSimulator: " + Display.getInstance().isSimulator());
+            } catch (Exception e) {
+            }
+
+            // 1. Discover methods for Display, CN, and Implementation
             discoverMethods("com.codename1.ui.Display");
             discoverMethods("com.codename1.ui.CN");
+            try {
+                Class<?> utilClass = Class.forName("com.codename1.io.Util");
+                java.lang.reflect.Method getImpl = utilClass.getDeclaredMethod("getImplementation");
+                getImpl.setAccessible(true);
+                Object impl = getImpl.invoke(null);
+                if (impl != null) {
+                    discoverMethods(impl.getClass().getName());
+                } else {
+                    log("  Implementation object is NULL");
+                }
+            } catch (Exception e) {
+                log("  Failed to get implementation object via reflection: " + e.getMessage());
+            }
 
-            // 1. Check already connected first - try with NULL services too
+            // 2. Bluetooth Object Inspection
+            try {
+                log("Bluetooth Object Inspection:");
+                log("  Class: " + bluetooth.getClass().getName());
+                discoverMethods(bluetooth.getClass().getName());
+            } catch (Exception e) {
+            }
+
+            // 3. Check already connected first
             checkAlreadyConnected();
 
-            // 2. Request Android 12+ permissions via Resilient Reflection
+            // 4. Request Android 12+ permissions via Resilient Reflection & Fallbacks
             try {
-                log("Requesting Android 12+ permissions via Resilient Reflection...");
+                log("Requesting Android 12+ permissions via Resilient Reflection & Fallbacks...");
                 String[] permissions = {
                         "android.permission.BLUETOOTH_SCAN",
                         "android.permission.BLUETOOTH_CONNECT",
@@ -687,6 +733,19 @@ public class OmronBluetoothServiceDebug {
                         log("  Found hasPermission on CN");
                     } catch (Exception e2) {
                         log("  Could not find hasPermission on Display or CN");
+                    }
+                }
+
+                // Fallback check: canExecute
+                if (hasPermission == null) {
+                    try {
+                        log("  Trying fallback: Display.canExecute(permission)");
+                        for (String p : permissions) {
+                            Boolean can = Display.getInstance().canExecute(p);
+                            log("    canExecute(" + p + "): " + can);
+                        }
+                    } catch (Exception e) {
+                        log("    canExecute check failed: " + e.getMessage());
                     }
                 }
 
@@ -734,7 +793,6 @@ public class OmronBluetoothServiceDebug {
 
                         if (finalReq != null) {
                             log("  Triggering requestPermissions dialog...");
-                            // Handle different signatures
                             if (finalReq.getParameterTypes()[0].equals(actionListenerClass)) {
                                 finalReq.invoke(finalRTarget, new ActionListener<ActionEvent>() {
                                     @Override
@@ -777,7 +835,7 @@ public class OmronBluetoothServiceDebug {
                 synchronized (pLock) {
                     if (!pDone[0]) {
                         log("  Waiting for user to respond to permission dialogs...");
-                        pLock.wait(20000); // Wait up to 20s
+                        pLock.wait(20000);
                     }
                 }
                 log("  Permission wait completed. Done=" + pDone[0]);
@@ -785,7 +843,7 @@ public class OmronBluetoothServiceDebug {
                 log("  Reflection permission request failed: " + e.getMessage());
             }
 
-            // 3. Check Bluetooth state
+            // 5. Check Bluetooth state
             try {
                 log("Bluetooth.isEnabled(): " + bluetooth.isEnabled());
                 if (!bluetooth.isEnabled()) {
@@ -796,22 +854,29 @@ public class OmronBluetoothServiceDebug {
                 log("Bluetooth enable failed: " + e.getMessage());
             }
 
-            // 4. Check Location state via LocationManager (Try both Display and CN)
+            // 6. Check Location state via LocationManager
             try {
                 log("Checking LocationManager state...");
+                discoverMethods("com.codename1.location.LocationManager");
                 LocationManager lm = Display.getInstance().getLocationManager();
                 if (lm == null) {
-                    log("  LocationManager from Display is NULL");
+                    log("  LocationManager from Display is NULL. Trying static retrieval...");
+                    try {
+                        java.lang.reflect.Method getLM = LocationManager.class.getMethod("getLocationManager");
+                        lm = (LocationManager) getLM.invoke(null);
+                        log("  Static LocationManager.getLocationManager() returned: " + (lm != null));
+                    } catch (Exception e) {
+                        log("  Static retrieval failed: " + e.getMessage());
+                    }
                 }
 
                 if (lm != null) {
+                    final LocationManager finalLm = lm;
                     log("  LocationManager found. Checking GPS...");
                     try {
-                        // We wrap this in a short timeout just in case it hangs
                         final boolean[] gps = { false };
                         final boolean[] gpsDone = { false };
                         final Object gpsLock = new Object();
-                        final LocationManager finalLm = lm;
                         new Thread(() -> {
                             try {
                                 gps[0] = finalLm.isGPSEnabled();
@@ -831,13 +896,12 @@ public class OmronBluetoothServiceDebug {
                         log("  isGPSEnabled check failed: " + e.getMessage());
                     }
 
-                    log("  Setting LocationListener to trigger OS dialog...");
                     lm.setLocationListener(new LocationListener() {
                         @Override
                         public void locationUpdated(Location location) {
                             log("  Location update received: " + location.getLatitude() + ", "
                                     + location.getLongitude());
-                            lm.setLocationListener(null);
+                            finalLm.setLocationListener(null);
                         }
 
                         @Override
@@ -846,13 +910,13 @@ public class OmronBluetoothServiceDebug {
                         }
                     });
                 } else {
-                    log("  LocationManager is NULL");
+                    log("  LocationManager is STILL NULL");
                 }
             } catch (Exception e) {
                 log("  LocationManager check/trigger failed: " + e.getMessage());
             }
 
-            // 5. Request Library permissions
+            // 7. Request Library permissions
             try {
                 log("Requesting Library permissions...");
                 boolean reqResult = bluetooth.requestPermission();
@@ -861,7 +925,7 @@ public class OmronBluetoothServiceDebug {
                 log("  Bluetooth.requestPermission() failed: " + e.getMessage());
             }
 
-            // 6. Request Library Location - ONLY if not enabled, and ALWAYS in background
+            // 8. Request Library Location
             try {
                 boolean locEnabled = bluetooth.isLocationEnabled();
                 log("  Bluetooth.isLocationEnabled(): " + locEnabled);
@@ -881,22 +945,10 @@ public class OmronBluetoothServiceDebug {
                 log("  Location request trigger failed: " + e.getMessage());
             }
 
-            // 7. Final status check
+            // 9. Final status check
             try {
                 log("Final Bluetooth.hasPermission(): " + bluetooth.hasPermission());
                 log("Final Bluetooth.isLocationEnabled(): " + bluetooth.isLocationEnabled());
-
-                Class<?> displayClass = Class.forName("com.codename1.ui.Display");
-                java.lang.reflect.Method hasPermission = null;
-                try {
-                    hasPermission = displayClass.getMethod("hasPermission", String.class);
-                } catch (Exception e) {
-                }
-                if (hasPermission != null) {
-                    boolean fineLocation = (Boolean) hasPermission.invoke(Display.getInstance(),
-                            "android.permission.ACCESS_FINE_LOCATION");
-                    log("Final Display.hasPermission(ACCESS_FINE_LOCATION): " + fineLocation);
-                }
             } catch (Exception e) {
                 log("Final status check failed: " + e.getMessage());
             }
@@ -961,19 +1013,33 @@ public class OmronBluetoothServiceDebug {
         try {
             log("Discovering ALL methods for: " + className);
             Class<?> clazz = Class.forName(className);
+
+            log("  --- Public Methods ---");
             java.lang.reflect.Method[] methods = clazz.getMethods();
             for (java.lang.reflect.Method m : methods) {
-                StringBuilder params = new StringBuilder();
-                for (Class<?> p : m.getParameterTypes()) {
-                    if (params.length() > 0)
-                        params.append(", ");
-                    params.append(p.getSimpleName());
-                }
-                log("  Method: " + m.getName() + "(" + params.toString() + ") returns "
+                log("    Method: " + m.getName() + "(" + getParamTypes(m) + ") returns "
+                        + m.getReturnType().getSimpleName());
+            }
+
+            log("  --- Declared Methods ---");
+            java.lang.reflect.Method[] declared = clazz.getDeclaredMethods();
+            for (java.lang.reflect.Method m : declared) {
+                log("    Declared: " + m.getName() + "(" + getParamTypes(m) + ") returns "
                         + m.getReturnType().getSimpleName());
             }
         } catch (Exception e) {
-            log("  Discovery failed for " + className + ": " + e.getMessage());
+            log("  Failed to discover methods for " + className + ": " + e.getMessage());
         }
+    }
+
+    private String getParamTypes(java.lang.reflect.Method m) {
+        StringBuilder sb = new StringBuilder();
+        Class<?>[] params = m.getParameterTypes();
+        for (int i = 0; i < params.length; i++) {
+            sb.append(params[i].getSimpleName());
+            if (i < params.length - 1)
+                sb.append(", ");
+        }
+        return sb.toString();
     }
 }
