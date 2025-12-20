@@ -812,26 +812,38 @@ public class OmronBluetoothServiceDebug {
                             java.lang.reflect.Method req = null;
                             Object target = null;
 
-                            // AGGRESSIVE DISCOVERY
-                            log("  Searching for 'requestPermissions' on Display...");
-                            for (java.lang.reflect.Method m : displayClass.getDeclaredMethods()) {
-                                if (m.getName().equals("requestPermissions")) {
-                                    log("    Found on Display: " + m.toString());
-                                }
-                            }
-                            log("  Searching for 'requestPermissions' on CN...");
-                            for (java.lang.reflect.Method m : cnClass.getDeclaredMethods()) {
-                                if (m.getName().equals("requestPermissions")) {
-                                    log("    Found on CN: " + m.toString());
-                                }
-                            }
-                            if (finalImpl != null) {
-                                log("  Searching for 'requestPermissions' on Implementation...");
-                                for (java.lang.reflect.Method m : finalImpl.getClass().getDeclaredMethods()) {
-                                    if (m.getName().equals("requestPermissions")) {
-                                        log("    Found on Impl: " + m.toString());
+                            // AGGRESSIVE DISCOVERY - BROAD SEARCH
+                            log("  Searching for ANY method containing 'ermission'...");
+
+                            // Helper to log methods
+                            java.util.function.Consumer<Class<?>> logPermMethods = (clazz) -> {
+                                if (clazz == null)
+                                    return;
+                                log("    Scanning " + clazz.getName() + "...");
+                                for (java.lang.reflect.Method m : clazz.getMethods()) { // Public methods
+                                    if (m.getName().toLowerCase().contains("ermission")) {
+                                        log("      Found (public): " + m.toString());
                                     }
                                 }
+                                for (java.lang.reflect.Method m : clazz.getDeclaredMethods()) { // Declared methods
+                                    if (m.getName().toLowerCase().contains("ermission")) {
+                                        log("      Found (declared): " + m.toString());
+                                    }
+                                }
+                            };
+
+                            logPermMethods.accept(displayClass);
+                            logPermMethods.accept(cnClass);
+                            if (finalImpl != null) {
+                                logPermMethods.accept(finalImpl.getClass());
+                            }
+
+                            // Try to find AndroidNativeUtil
+                            try {
+                                Class<?> nativeUtil = Class.forName("com.codename1.impl.android.AndroidNativeUtil");
+                                logPermMethods.accept(nativeUtil);
+                            } catch (Exception e) {
+                                log("    Could not find AndroidNativeUtil class");
                             }
 
                             // Try Display.requestPermissions(String[], ActionListener)
