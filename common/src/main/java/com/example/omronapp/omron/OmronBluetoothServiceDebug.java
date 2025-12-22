@@ -26,8 +26,19 @@ import com.codename1.ui.Dialog;
 public class OmronBluetoothServiceDebug {
 
     // Bluetooth SIG standard UUIDs for Blood Pressure Profile
-    private static final String BLOOD_PRESSURE_SERVICE_UUID = "00001810-0000-1000-8000-00805f9b34fb";
-    private static final String BLOOD_PRESSURE_MEASUREMENT_UUID = "00002a35-0000-1000-8000-00805f9b34fb";
+    // Omron Proprietary UUIDs
+    private static final String OMRON_SERVICE_UUID = "49123040-aee8-11e1-a74d-0002a5d5c51b"; // Proprietary Service
+    private static final String OMRON_WRITE_CHARACTERISTIC_UUID = "49123041-aee8-11e1-a74d-0002a5d5c51b"; // Write
+                                                                                                          // Handle
+    private static final String OMRON_NOTIFY_CHARACTERISTIC_UUID = "49123042-aee8-11e1-a74d-0002a5d5c51b"; // Notify
+                                                                                                           // Handle
+
+    // Standard UUIDs (Kept for reference or generic scanning if needed, though
+    // Omron service is prioritized)
+    // private static final String BLOOD_PRESSURE_SERVICE_UUID =
+    // "00001810-0000-1000-8000-00805f9b34fb";
+    // private static final String BLOOD_PRESSURE_MEASUREMENT_UUID =
+    // "00002a35-0000-1000-8000-00805f9b34fb";
 
     // Device Information Service (for testing basic communication)
     private static final String DEVICE_INFO_SERVICE_UUID = "0000180a-0000-1000-8000-00805f9b34fb";
@@ -380,8 +391,8 @@ public class OmronBluetoothServiceDebug {
             boolean[] subscriptionStarted, int[] notificationCount) {
         try {
             log("Calling bluetooth.subscribe()...");
-            log("Service UUID: " + BLOOD_PRESSURE_SERVICE_UUID);
-            log("Characteristic UUID: " + BLOOD_PRESSURE_MEASUREMENT_UUID);
+            log("Service UUID: " + OMRON_SERVICE_UUID);
+            log("Characteristic UUID: " + OMRON_NOTIFY_CHARACTERISTIC_UUID);
 
             bluetooth.subscribe(new ActionListener<ActionEvent>() {
                 @Override
@@ -406,7 +417,16 @@ public class OmronBluetoothServiceDebug {
                             byte[] data = Base64.decode(value.getBytes());
                             log("Decoded data length: " + data.length + " bytes");
 
+                            // Debug raw bytes
+                            StringBuilder sb = new StringBuilder();
+                            for (byte b : data) {
+                                sb.append(String.format("%02X ", b));
+                            }
+                            log("RAW DATA: " + sb.toString());
+
                             log("Parsing measurement...");
+                            // Note: Proprietary format parsing might need adjustment. attempting standard
+                            // parse.
                             OmronMeasurement measurement = parseMeasurement(data);
                             log("Measurement parsed successfully");
                             log("  Systolic: " + measurement.getSystolic());
@@ -436,9 +456,33 @@ public class OmronBluetoothServiceDebug {
                         }
                     }
                 }
-            }, deviceMac, BLOOD_PRESSURE_SERVICE_UUID, BLOOD_PRESSURE_MEASUREMENT_UUID);
+            }, deviceMac, OMRON_SERVICE_UUID, OMRON_NOTIFY_CHARACTERISTIC_UUID);
 
             log("bluetooth.subscribe() call completed (async)");
+
+            // Send Handshake
+            log("=== SENDING HANDSHAKE ===");
+            try {
+                // Handshake bytes: 00 02 00 10 85 00 00 10 8E
+                byte[] handshake = new byte[] {
+                        (byte) 0x00, (byte) 0x02, (byte) 0x00, (byte) 0x10, (byte) 0x85,
+                        (byte) 0x00, (byte) 0x00, (byte) 0x10, (byte) 0x8E
+                };
+                log("Writing handshake to: " + OMRON_WRITE_CHARACTERISTIC_UUID);
+
+                String handshakeBase64 = Base64.encode(handshake);
+
+                bluetooth.write(new ActionListener<ActionEvent>() {
+                    @Override
+                    public void actionPerformed(ActionEvent evt) {
+                        log("Handshake write completed/acknowledged");
+                    }
+                }, deviceMac, OMRON_SERVICE_UUID, OMRON_WRITE_CHARACTERISTIC_UUID, handshakeBase64, true);
+                log("Handshake write command issued");
+            } catch (Exception e) {
+                log("ERROR sending handshake: " + e.getMessage());
+                // Don't fail immediately, maybe subscription is enough?
+            }
 
         } catch (IOException e) {
             log("ERROR: IOException during subscribe: " + e.getMessage());
@@ -560,7 +604,7 @@ public class OmronBluetoothServiceDebug {
         if (!found) {
             log("General scan failed to find target. Trying specific service scan...");
             ArrayList<String> services = new ArrayList<>();
-            services.add(BLOOD_PRESSURE_SERVICE_UUID);
+            services.add(OMRON_SERVICE_UUID);
             performScan(targetMac, services, 15000); // Increased to 15s
         }
     }
@@ -948,7 +992,7 @@ public class OmronBluetoothServiceDebug {
         try {
             // Try with Blood Pressure service
             ArrayList<String> services = new ArrayList<>();
-            services.add(BLOOD_PRESSURE_SERVICE_UUID);
+            services.add(OMRON_SERVICE_UUID);
 
             log("  Calling retrieveConnected with BP service...");
             bluetooth.retrieveConnected(new ActionListener<ActionEvent>() {
