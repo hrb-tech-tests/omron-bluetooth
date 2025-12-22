@@ -31,6 +31,7 @@ import java.util.List;
  */
 public class OmronDebugForm extends Form {
 
+    private static final String APP_TITLE = "OMERON debug 15";
     private static final String PREF_LAST_MAC_ADDRESS = "omron_last_mac_address";
     private static final String DEFAULT_MAC_HINT = "AA:BB:CC:DD:EE:FF";
 
@@ -45,7 +46,7 @@ public class OmronDebugForm extends Form {
     private final OmronBluetoothServiceDebug debugService;
 
     public OmronDebugForm() {
-        super("OMERON debug 14", BoxLayout.y());
+        super(APP_TITLE, BoxLayout.y());
 
         debugService = new OmronBluetoothServiceDebug();
 
@@ -141,7 +142,8 @@ public class OmronDebugForm extends Form {
         loadLastMacAddress();
 
         // Show initial help
-        logArea.setText("DEBUG MODE ACTIVE\n" +
+        logArea.setText("Logs from " + getTitle() + ":\n\n" +
+                "DEBUG MODE ACTIVE\n" +
                 "=================\n" +
                 "This version logs every step of the Bluetooth communication.\n" +
                 "Enter a MAC address and tap 'Get Data' to begin.\n" +
@@ -180,9 +182,9 @@ public class OmronDebugForm extends Form {
     }
 
     private void loadLastMacAddress() {
-        String lastMac = Preferences.get(PREF_LAST_MAC_ADDRESS, "");
-        if (lastMac != null && !lastMac.isEmpty()) {
-            macAddressField.setText(lastMac);
+        String LastMac = Preferences.get(PREF_LAST_MAC_ADDRESS, "");
+        if (LastMac != null && !LastMac.isEmpty()) {
+            macAddressField.setText(LastMac);
         }
     }
 
@@ -229,6 +231,9 @@ public class OmronDebugForm extends Form {
         shareLogsButton.setEnabled(false);
         abortButton.setEnabled(true);
 
+        // Capture title on EDT
+        final String currentTitle = getTitle();
+
         // DON'T clear logs - accumulate across all attempts
         // Add separator if this is not the first run
         String currentLogs = logArea.getText();
@@ -240,7 +245,7 @@ public class OmronDebugForm extends Form {
                     separator += "=";
                 logArea.setText(currentLogs + "\n\n" +
                         separator + "\n" +
-                        "NEW ATTEMPT CYCLE - " + new java.util.Date() + "\n" +
+                        "NEW ATTEMPT CYCLE (" + currentTitle + ") - " + new java.util.Date() + "\n" +
                         separator + "\n\n");
             });
         }
@@ -262,6 +267,7 @@ public class OmronDebugForm extends Form {
 
                 // Add visual separator for each attempt
                 final String attemptSeparator = "\n" + createSeparator("=", 60) + "\n" +
+                        "Logs from " + currentTitle + ":\n\n" +
                         "ATTEMPT " + attemptNum + "/" + total + ": " + formatDesc + "\n" +
                         "MAC Format: " + currentMac + "\n" +
                         createSeparator("-", 60) + "\n";
