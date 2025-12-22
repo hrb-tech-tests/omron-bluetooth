@@ -938,6 +938,18 @@ public class OmronBluetoothServiceDebug {
                                 }
                             } else {
                                 log("  !!! COULD NOT FIND requestPermissions METHOD !!!");
+                                // SHOW MANUAL INSTRUCTION DIALOG
+                                Display.getInstance().callSerially(() -> {
+                                    Dialog.show("Permissions Required",
+                                            "The app cannot request permissions automatically on this device.\n\n" +
+                                                    "Please manually grant permissions:\n" +
+                                                    "1. Go to Android Settings\n" +
+                                                    "2. Select Apps > OMERON Debug 11\n" +
+                                                    "3. Tap Permissions\n" +
+                                                    "4. Allow 'Nearby Devices' and 'Location'\n" +
+                                                    "5. Restart the app",
+                                            "OK", null);
+                                });
                                 synchronized (pLock) {
                                     pDone[0] = true;
                                     pLock.notifyAll();
