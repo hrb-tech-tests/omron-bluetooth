@@ -949,11 +949,11 @@ public class OmronBluetoothServiceDebug {
                                                     "4. Allow 'Nearby Devices' and 'Location'\n" +
                                                     "5. Restart the app",
                                             "OK", null);
+                                    synchronized (pLock) {
+                                        pDone[0] = true;
+                                        pLock.notifyAll();
+                                    }
                                 });
-                                synchronized (pLock) {
-                                    pDone[0] = true;
-                                    pLock.notifyAll();
-                                }
                             }
                         } catch (Exception e) {
                             log("  Error triggering requestPermissions: " + e.getMessage());
@@ -994,7 +994,9 @@ public class OmronBluetoothServiceDebug {
             } catch (Exception e) {
                 log("Final status check failed: " + e.getMessage());
             }
-        } else {
+        } else
+
+        {
             log("Not Android platform, skipping permission check");
         }
     }
