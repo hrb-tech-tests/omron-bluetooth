@@ -38,21 +38,29 @@ public enum OmronBluetoothService {
 
     public void abort() {
         this.aborted = true;
-        logger.log("Abort requested");
+        logger.log("Abort requested by user.");
     }
 
     private synchronized void ensureInitialized() throws OmronBluetoothException {
-        if (initialized) return;
+        logger.log("Ensuring Bluetooth is initialized...");
+        if (initialized) {
+            logger.log("Bluetooth already initialized.");
+            return;
+        }
         
         if (Display.getInstance().isSimulator()) {
+            logger.log("Running in simulator, Bluetooth not supported.");
             throw new OmronBluetoothException(OmronBluetoothException.ErrorType.DEVICE_NOT_FOUND, "Bluetooth not available in simulator");
         }
 
         try {
+            logger.log("Initializing Bluetooth...");
             bluetooth = new Bluetooth();
             bluetooth.initialize(true, false, "omron_app");
             initialized = true;
+            logger.log("Bluetooth initialized successfully.");
         } catch (Exception e) {
+            logger.log("Bluetooth initialization failed: " + e.getMessage());
             throw new OmronBluetoothException(OmronBluetoothException.ErrorType.CONNECTION_FAILED, e);
         }
     }
@@ -62,7 +70,7 @@ public enum OmronBluetoothService {
         checkPermissions();
         this.aborted = false;
         logger.clear();
-        logger.log("Starting retrieval for " + deviceMac);
+        logger.log("Starting data retrieval for device: " + deviceMac);
 
         final List<OmronMeasurement> measurements = new ArrayList<>();
         final Object lock = new Object();
@@ -70,28 +78,41 @@ public enum OmronBluetoothService {
         final OmronBluetoothException[] error = { null };
 
         try {
+            logger.log("Attempting to connect to " + deviceMac + "...");
             bluetooth.connect(evt -> {
-                logger.log("Connected to device");
+                logger.log("Connection event received: " + evt.getSource());
                 performHandshakeAndSubscribe(deviceMac, measurements, lock, completed, error);
             }, deviceMac);
 
             synchronized (lock) {
                 long start = System.currentTimeMillis();
+                logger.log("Waiting for data transfer to complete... Timeout set to " + DEFAULT_TIMEOUT + "ms.");
                 while (!completed[0]) {
-                    if (aborted) throw new OmronBluetoothException(OmronBluetoothException.ErrorType.ABORTED);
+                    if (aborted) {
+                        logger.log("Operation aborted.");
+                        throw new OmronBluetoothException(OmronBluetoothException.ErrorType.ABORTED);
+                    }
                     if (System.currentTimeMillis() - start > DEFAULT_TIMEOUT) {
+                        logger.log("Operation timed out.");
                         throw new OmronBluetoothException(OmronBluetoothException.ErrorType.TIMEOUT);
                     }
                     lock.wait(1000);
                 }
+                logger.log("Data transfer lock released.");
             }
 
-            if (error[0] != null) throw error[0];
+            if (error[0] != null) {
+                logger.log("An error occurred during data transfer.");
+                throw error[0];
+            }
 
+            logger.log("Disconnecting from " + deviceMac);
             bluetooth.disconnect(deviceMac);
+            logger.log("Data retrieval successful.");
             return new OmronDeviceData(deviceMac, DEVICE_MODEL, measurements).toJSON();
 
         } catch (Exception e) {
+            logger.log("Exception during data retrieval: " + e.getClass().getSimpleName() + " - " + e.getMessage());
             if (e instanceof OmronBluetoothException) throw (OmronBluetoothException)e;
             throw new OmronBluetoothException(OmronBluetoothException.ErrorType.CONNECTION_FAILED, e);
         }
@@ -99,14 +120,17 @@ public enum OmronBluetoothService {
 
     private void performHandshakeAndSubscribe(String mac, List<OmronMeasurement> measurements, Object lock, boolean[] completed, OmronBluetoothException[] error) {
         try {
+            logger.log("Subscribing to notifications...");
             bluetooth.subscribe(evt -> {
                 handleNotification(evt, measurements, lock, completed, error);
             }, mac, OMRON_SERVICE_UUID, OMRON_NOTIFY_UUID);
+            logger.log("Subscription successful. Sending handshake...");
 
             byte[] handshake = {0x00, 0x02, 0x00, 0x10, (byte)0x85, 0x00, 0x00, 0x10, (byte)0x8E};
-            bluetooth.write(evt -> logger.log("Handshake sent"), mac, OMRON_SERVICE_UUID, OMRON_WRITE_UUID, Base64.encode(handshake), true);
+            bluetooth.write(evt -> logger.log("Handshake sent successfully."), mac, OMRON_SERVICE_UUID, OMRON_WRITE_UUID, Base64.encode(handshake), true);
             
         } catch (IOException e) {
+            logger.log("Handshake/Subscription failed: " + e.getMessage());
             fail(lock, completed, error, e);
         }
     }
@@ -118,20 +142,26 @@ public enum OmronBluetoothService {
             
             if (value != null && !value.isEmpty()) {
                 byte[] data = Base64.decode(value.getBytes());
+                logger.log("Notification received. Bytes: " + data.length);
                 OmronMeasurement m = OmronProtocolParser.parse(data);
                 synchronized (lock) { measurements.add(m); }
-                logger.log("Measurement received: " + m);
+                logger.log("Parsed Measurement: " + m);
             } else {
+                logger.log("Empty notification received, signaling end of transmission.");
                 synchronized (lock) { completed[0] = true; lock.notifyAll(); }
             }
         } catch (Exception e) {
+            logger.log("Failed to handle notification: " + e.getMessage());
             fail(lock, completed, error, e);
         }
     }
 
     private void fail(Object lock, boolean[] completed, OmronBluetoothException[] error, Exception e) {
+        logger.log("Operation failed: " + e.getClass().getSimpleName() + " - " + e.getMessage());
         synchronized (lock) {
-            error[0] = new OmronBluetoothException(OmronBluetoothException.ErrorType.DATA_TRANSFER_FAILED, e);
+            if (error[0] == null) {
+                error[0] = new OmronBluetoothException(OmronBluetoothException.ErrorType.DATA_TRANSFER_FAILED, e);
+            }
             completed[0] = true;
             lock.notifyAll();
         }
@@ -141,8 +171,12 @@ public enum OmronBluetoothService {
      * Checks and requests necessary Android permissions using reflection for compatibility.
      */
     private void checkPermissions() {
-        if (!"and".equals(Display.getInstance().getPlatformName())) return;
+        if (!"and".equals(Display.getInstance().getPlatformName())) {
+            logger.log("Skipping permission check: Not on Android.");
+            return;
+        }
         try {
+            logger.log("Checking Android permissions...");
             String[] perms = {"android.permission.BLUETOOTH_SCAN", "android.permission.BLUETOOTH_CONNECT", "android.permission.ACCESS_FINE_LOCATION"};
             Class<?> displayClass = Class.forName("com.codename1.ui.Display");
             Class<?> actionListenerClass = Class.forName("com.codename1.ui.events.ActionListener");
@@ -153,16 +187,22 @@ public enum OmronBluetoothService {
             boolean allGranted = true;
             for (String p : perms) {
                 if (!(Boolean) hasPermission.invoke(Display.getInstance(), p)) {
+                    logger.log("Missing permission: " + p);
                     allGranted = false;
                     break;
                 }
             }
 
-            if (!allGranted) {
-                requestPermissions.invoke(Display.getInstance(), (ActionListener) evt -> {}, perms);
+            if (allGranted) {
+                logger.log("All required permissions are granted.");
+            } else {
+                logger.log("Requesting missing permissions...");
+                requestPermissions.invoke(Display.getInstance(), (ActionListener) evt -> {
+                    logger.log("Permission request dialog closed.");
+                }, perms);
             }
         } catch (Exception e) {
-            logger.log("Permission check failed: " + e.getMessage());
+            logger.log("Permission check failed catastrophically: " + e.getMessage());
         }
     }
 }
