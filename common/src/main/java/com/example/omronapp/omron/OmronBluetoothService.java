@@ -81,6 +81,7 @@ public enum OmronBluetoothService {
             logger.log("Starting BLE scan...");
             bluetooth.startScan(evt -> {
                 try {
+                    logger.log("Scan event received: " + evt.getSource());
                     Map<String, Object> scanResult = (Map<String, Object>) evt.getSource();
                     String address = (String) scanResult.get("address");
                     logger.log("Device found: " + address);
