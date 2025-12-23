@@ -78,11 +78,27 @@ public enum OmronBluetoothService {
         final OmronBluetoothException[] error = { null };
 
         try {
-            logger.log("Attempting to connect to " + deviceMac + "...");
-            bluetooth.connect(evt -> {
-                logger.log("Connection event received: " + evt.getSource());
-                performHandshakeAndSubscribe(deviceMac, measurements, lock, completed, error);
-            }, deviceMac);
+            logger.log("Starting BLE scan...");
+            bluetooth.startScan(evt -> {
+                try {
+                    Map<String, Object> scanResult = (Map<String, Object>) evt.getSource();
+                    String address = (String) scanResult.get("address");
+                    logger.log("Device found: " + address);
+
+                    if (deviceMac.equalsIgnoreCase(address)) {
+                        logger.log("Target device found: " + address);
+                        bluetooth.stopScan();
+                        logger.log("Attempting to connect to " + deviceMac + "...");
+                        bluetooth.connect(connectEvt -> {
+                            logger.log("Connection event received: " + connectEvt.getSource());
+                            performHandshakeAndSubscribe(deviceMac, measurements, lock, completed, error);
+                        }, deviceMac);
+                    }
+                } catch (IOException e) {
+                    fail(lock, completed, error, e);
+                }
+            }, null, false, Bluetooth.SCAN_MODE_LOW_LATENCY, Bluetooth.MATCH_MODE_STICKY, Bluetooth.MATCH_NUM_MAX_ADVERTISEMENT, Bluetooth.CALLBACK_TYPE_ALL_MATCHES);
+
 
             synchronized (lock) {
                 long start = System.currentTimeMillis();
@@ -94,6 +110,7 @@ public enum OmronBluetoothService {
                     }
                     if (System.currentTimeMillis() - start > DEFAULT_TIMEOUT) {
                         logger.log("Operation timed out.");
+                        bluetooth.stopScan();
                         throw new OmronBluetoothException(OmronBluetoothException.ErrorType.TIMEOUT);
                     }
                     lock.wait(1000);
