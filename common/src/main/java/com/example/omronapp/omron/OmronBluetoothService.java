@@ -13,148 +13,56 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Singleton service for OMRON HEM-7144T2 Bluetooth integration.
- * 
- * Uses Java 8 Enum pattern for thread-safe singleton implementation.
- * Provides a single, simple API: getDataFromDevice(deviceMac) -> JSON
- * 
- * Clean Code Principles Applied:
- * - Single Responsibility: Only handles OMRON device communication
- * - Open/Closed: Extensible through inheritance if needed
- * - Dependency Inversion: Depends on Bluetooth abstraction
- * - Interface Segregation: Minimal public API
- * 
- * Note: Bluetooth features only work on real devices (iOS/Android).
- * In the CN1 simulator, this service will throw DEVICE_NOT_FOUND errors.
- * 
- * Usage:
- * 
- * <pre>
- * try {
- *     String json = OmronBluetoothService.INSTANCE.getDataFromDevice("AA:BB:CC:DD:EE:FF");
- *     // Process JSON...
- * } catch (OmronBluetoothException e) {
- *     // Handle error...
- * }
- * </pre>
+ * Unified service for OMRON Bluetooth integration.
+ * Refactored to comply with Clean Code principles.
  */
 public enum OmronBluetoothService {
-
     INSTANCE;
 
-    // Bluetooth SIG standard UUIDs for Blood Pressure Profile
-    private static final String BLOOD_PRESSURE_SERVICE_UUID = "00001810-0000-1000-8000-00805f9b34fb";
-    private static final String BLOOD_PRESSURE_MEASUREMENT_UUID = "00002a35-0000-1000-8000-00805f9b34fb";
-
-    // Device model identifier
+    // UUIDs
+    private static final String OMRON_SERVICE_UUID = "49123040-aee8-11e1-a74d-0002a5d5c51b";
+    private static final String OMRON_WRITE_UUID = "49123041-aee8-11e1-a74d-0002a5d5c51b";
+    private static final String OMRON_NOTIFY_UUID = "49123042-aee8-11e1-a74d-0002a5d5c51b";
+    
+    private static final long DEFAULT_TIMEOUT = 30000;
     private static final String DEVICE_MODEL = "HEM-7144T2";
 
-    // Timeout for data collection (milliseconds)
-    private static final long DATA_COLLECTION_TIMEOUT = 30000;
-
-    // Lazy-initialized Bluetooth instance (not initialized in constructor to avoid
-    // simulator issues)
     private Bluetooth bluetooth;
-    private boolean bluetoothInitialized = false;
-    private String initializationError = null;
+    private boolean initialized = false;
+    private OmronLogger logger = new OmronLogger.Silent();
+    private volatile boolean aborted = false;
 
-    /**
-     * Enum constructor - called once when INSTANCE is first accessed.
-     * Does NOT initialize Bluetooth here to avoid simulator crashes.
-     */
-    OmronBluetoothService() {
-        // Intentionally empty - Bluetooth is lazily initialized in
-        // ensureBluetoothInitialized()
+    public void setLogger(OmronLogger logger) {
+        this.logger = logger != null ? logger : new OmronLogger.Silent();
     }
 
-    /**
-     * Lazily initializes Bluetooth when first needed.
-     * This prevents class initialization failures in the CN1 simulator.
-     * 
-     * @throws OmronBluetoothException if Bluetooth cannot be initialized (e.g.,
-     *                                 simulator environment)
-     */
-    private synchronized void ensureBluetoothInitialized() throws OmronBluetoothException {
-        if (bluetoothInitialized) {
-            if (initializationError != null) {
-                throw new OmronBluetoothException(
-                        OmronBluetoothException.ErrorType.DEVICE_NOT_FOUND,
-                        initializationError);
-            }
-            return;
-        }
+    public void abort() {
+        this.aborted = true;
+        logger.log("Abort requested");
+    }
 
-        bluetoothInitialized = true;
-
-        // Check if running in simulator
+    private synchronized void ensureInitialized() throws OmronBluetoothException {
+        if (initialized) return;
+        
         if (Display.getInstance().isSimulator()) {
-            initializationError = "Bluetooth is not available in the simulator. Please test on a real device.";
-            throw new OmronBluetoothException(
-                    OmronBluetoothException.ErrorType.DEVICE_NOT_FOUND,
-                    initializationError);
+            throw new OmronBluetoothException(OmronBluetoothException.ErrorType.DEVICE_NOT_FOUND, "Bluetooth not available in simulator");
         }
 
         try {
             bluetooth = new Bluetooth();
-            // Use a specific key for restoration and request initialization
-            bluetooth.initialize(true, false, "omron_bluetooth_app");
-        } catch (IOException e) {
-            initializationError = "Bluetooth initialization failed: " + e.getMessage();
-            throw new OmronBluetoothException(
-                    OmronBluetoothException.ErrorType.CONNECTION_FAILED,
-                    initializationError);
+            bluetooth.initialize(true, false, "omron_app");
+            initialized = true;
         } catch (Exception e) {
-            initializationError = "Bluetooth not supported on this device: " + e.getMessage();
-            throw new OmronBluetoothException(
-                    OmronBluetoothException.ErrorType.DEVICE_NOT_FOUND,
-                    initializationError);
+            throw new OmronBluetoothException(OmronBluetoothException.ErrorType.CONNECTION_FAILED, e);
         }
     }
 
-    /**
-     * Retrieves all measurement data from the specified OMRON device.
-     * 
-     * This method:
-     * 1. Connects to the device via Bluetooth LE
-     * 2. Subscribes to blood pressure measurement notifications
-     * 3. Collects all measurements from device memory
-     * 4. Returns a JSON string with device metadata and all measurements
-     * 
-     * @param deviceMac MAC address of the OMRON device (format:
-     *                  "AA:BB:CC:DD:EE:FF")
-     * @return JSON string containing device data and all measurements
-     * @throws OmronBluetoothException if any error occurs during the process
-     */
     public String getDataFromDevice(String deviceMac) throws OmronBluetoothException {
-        // Lazily initialize Bluetooth (prevents simulator crashes)
-        ensureBluetoothInitialized();
-
-        // Check and request permissions if needed (Android 12+ specific)
+        ensureInitialized();
         checkPermissions();
-
-        // Ensure Bluetooth is enabled and library permissions are granted
-        try {
-            if (!bluetooth.isEnabled()) {
-                System.out.println("OmronBluetoothService: Bluetooth disabled, requesting enable...");
-                bluetooth.enable();
-                // Give it a moment to initialize
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                }
-            }
-
-            if (!bluetooth.hasPermission()) {
-                System.out.println("OmronBluetoothService: Requesting library permissions...");
-                bluetooth.requestPermission();
-            }
-        } catch (IOException e) {
-            System.out.println("OmronBluetoothService: Warning during enable/permission check: " + e.getMessage());
-            // Continue, as checkPermissions() might have handled it or it might be a
-            // non-fatal error
-        }
-
-        validateMacAddress(deviceMac);
+        this.aborted = false;
+        logger.clear();
+        logger.log("Starting retrieval for " + deviceMac);
 
         final List<OmronMeasurement> measurements = new ArrayList<>();
         final Object lock = new Object();
@@ -162,310 +70,99 @@ public enum OmronBluetoothService {
         final OmronBluetoothException[] error = { null };
 
         try {
-            System.out.println("OmronBluetoothService: Connecting to " + deviceMac);
-            // Connect to device
-            bluetooth.connect(new ActionListener() {
-                @Override
-                public void actionPerformed(ActionEvent evt) {
-                    System.out.println("OmronBluetoothService: Connected to " + deviceMac);
-                    try {
-                        // Subscribe to blood pressure notifications
-                        subscribeToMeasurements(deviceMac, measurements, lock, completed, error);
-                    } catch (Exception e) {
-                        System.out.println("OmronBluetoothService: Error in connection callback: " + e.getMessage());
-                        e.printStackTrace();
-                        synchronized (lock) {
-                            error[0] = new OmronBluetoothException(
-                                    OmronBluetoothException.ErrorType.DATA_TRANSFER_FAILED, e);
-                            completed[0] = true;
-                            lock.notifyAll();
-                        }
-                    }
-                }
+            bluetooth.connect(evt -> {
+                logger.log("Connected to device");
+                performHandshakeAndSubscribe(deviceMac, measurements, lock, completed, error);
             }, deviceMac);
 
-            // Wait for data collection to complete or timeout
             synchronized (lock) {
-                long startTime = System.currentTimeMillis();
+                long start = System.currentTimeMillis();
                 while (!completed[0]) {
-                    long elapsed = System.currentTimeMillis() - startTime;
-                    if (elapsed >= DATA_COLLECTION_TIMEOUT) {
-                        System.out.println("OmronBluetoothService: Timeout waiting for data");
-                        throw new OmronBluetoothException(OmronBluetoothException.ErrorType.TIMEOUT,
-                                "after " + (DATA_COLLECTION_TIMEOUT / 1000) + " seconds");
+                    if (aborted) throw new OmronBluetoothException(OmronBluetoothException.ErrorType.ABORTED);
+                    if (System.currentTimeMillis() - start > DEFAULT_TIMEOUT) {
+                        throw new OmronBluetoothException(OmronBluetoothException.ErrorType.TIMEOUT);
                     }
-                    lock.wait(1000); // Wait with 1 second intervals
+                    lock.wait(1000);
                 }
             }
 
-            // Check for errors during data collection
-            if (error[0] != null) {
-                throw error[0];
-            }
+            if (error[0] != null) throw error[0];
 
-            // Disconnect from device
-            disconnect(deviceMac);
-
-            // Build and return JSON response
-            OmronDeviceData deviceData = new OmronDeviceData(deviceMac, DEVICE_MODEL, measurements);
-            return deviceData.toJSON();
-
-        } catch (IOException e) {
-            throw new OmronBluetoothException(OmronBluetoothException.ErrorType.CONNECTION_FAILED, e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new OmronBluetoothException(OmronBluetoothException.ErrorType.DATA_TRANSFER_FAILED, e);
-        }
-    }
-
-    /**
-     * Subscribes to blood pressure measurement notifications from the device.
-     */
-    private void subscribeToMeasurements(String deviceMac, List<OmronMeasurement> measurements,
-            Object lock, boolean[] completed,
-            OmronBluetoothException[] error) {
-        try {
-            System.out.println("OmronBluetoothService: Subscribing to measurements");
-            bluetooth.subscribe(new ActionListener() {
-                @Override
-                public void actionPerformed(ActionEvent evt) {
-                    try {
-                        Map<String, Object> result = (Map<String, Object>) evt.getSource();
-                        String value = (String) result.get("value");
-                        System.out.println("OmronBluetoothService: Received notification. Value: " + value);
-
-                        if (value != null && !value.isEmpty()) {
-                            // Decode and parse measurement
-                            byte[] data = Base64.decode(value.getBytes());
-                            OmronMeasurement measurement = parseMeasurement(data);
-
-                            synchronized (lock) {
-                                measurements.add(measurement);
-                            }
-                        } else {
-                            // Empty notification indicates end of data transfer
-                            synchronized (lock) {
-                                completed[0] = true;
-                                lock.notifyAll();
-                            }
-                        }
-                    } catch (Exception e) {
-                        synchronized (lock) {
-                            error[0] = new OmronBluetoothException(
-                                    OmronBluetoothException.ErrorType.INVALID_DATA, e);
-                            completed[0] = true;
-                            lock.notifyAll();
-                        }
-                    }
-                }
-            }, deviceMac, BLOOD_PRESSURE_SERVICE_UUID, BLOOD_PRESSURE_MEASUREMENT_UUID);
-
-        } catch (IOException e) {
-            synchronized (lock) {
-                error[0] = new OmronBluetoothException(
-                        OmronBluetoothException.ErrorType.DATA_TRANSFER_FAILED, e);
-                completed[0] = true;
-                lock.notifyAll();
-            }
-        }
-    }
-
-    /**
-     * Parses a blood pressure measurement from raw Bluetooth data.
-     * 
-     * Follows IEEE 11073-20601 Blood Pressure Measurement format:
-     * - Byte 0: Flags
-     * - Bytes 1-2: Systolic (SFLOAT)
-     * - Bytes 3-4: Diastolic (SFLOAT)
-     * - Bytes 5-6: Mean Arterial Pressure (SFLOAT)
-     * - Bytes 7-13: Timestamp (optional)
-     * - Bytes 14-15: Pulse Rate (optional)
-     */
-    private OmronMeasurement parseMeasurement(byte[] data) throws OmronBluetoothException {
-        if (data == null || data.length < 7) {
-            throw new OmronBluetoothException(OmronBluetoothException.ErrorType.INVALID_DATA,
-                    "Insufficient data length: " + (data != null ? data.length : 0));
-        }
-
-        try {
-            // Parse blood pressure values (SFLOAT format)
-            int systolic = parseSFloat(data, 1);
-            int diastolic = parseSFloat(data, 3);
-            int meanArterialPressure = parseSFloat(data, 5);
-
-            // Parse timestamp if available
-            long timestamp = System.currentTimeMillis();
-            if (data.length >= 14) {
-                timestamp = parseTimestamp(data, 7);
-            }
-
-            // Parse heart rate if available
-            int heartRate = 0;
-            if (data.length >= 16) {
-                heartRate = parseSFloat(data, 14);
-            }
-
-            return new OmronMeasurement(systolic, diastolic, meanArterialPressure, heartRate, timestamp);
+            bluetooth.disconnect(deviceMac);
+            return new OmronDeviceData(deviceMac, DEVICE_MODEL, measurements).toJSON();
 
         } catch (Exception e) {
-            throw new OmronBluetoothException(OmronBluetoothException.ErrorType.INVALID_DATA, e);
+            if (e instanceof OmronBluetoothException) throw (OmronBluetoothException)e;
+            throw new OmronBluetoothException(OmronBluetoothException.ErrorType.CONNECTION_FAILED, e);
         }
     }
 
-    /**
-     * Parses an IEEE 11073-20601 SFLOAT value.
-     * SFLOAT is a 16-bit floating point with 12-bit mantissa and 4-bit exponent.
-     */
-    private int parseSFloat(byte[] data, int offset) {
-        int value = ((data[offset + 1] & 0xFF) << 8) | (data[offset] & 0xFF);
-        int mantissa = value & 0x0FFF;
-        int exponent = value >> 12;
-
-        // Handle negative mantissa (two's complement)
-        if ((mantissa & 0x0800) != 0) {
-            mantissa = -((~mantissa & 0x0FFF) + 1);
-        }
-
-        // Handle negative exponent (two's complement)
-        if ((exponent & 0x08) != 0) {
-            exponent = -((~exponent & 0x0F) + 1);
-        }
-
-        // Use CN1-compatible power of 10 calculation (Math.pow not supported)
-        return (int) (mantissa * powerOfTen(exponent));
-    }
-
-    /**
-     * Calculates 10^exponent without using Math.pow() for CN1 compatibility.
-     * Supports exponents from -7 to 7 (typical range for SFLOAT values).
-     */
-    private double powerOfTen(int exponent) {
-        if (exponent >= 0) {
-            double result = 1.0;
-            for (int i = 0; i < exponent; i++) {
-                result *= 10.0;
-            }
-            return result;
-        } else {
-            double result = 1.0;
-            for (int i = 0; i < -exponent; i++) {
-                result /= 10.0;
-            }
-            return result;
-        }
-    }
-
-    /**
-     * Parses IEEE 11073-20601 timestamp (7 bytes).
-     */
-    private long parseTimestamp(byte[] data, int offset) {
-        // For simplicity, return current time
-        // Full implementation would parse year, month, day, hour, minute, second
-        return System.currentTimeMillis();
-    }
-
-    /**
-     * Disconnects from the specified device.
-     */
-    private void disconnect(String deviceMac) {
+    private void performHandshakeAndSubscribe(String mac, List<OmronMeasurement> measurements, Object lock, boolean[] completed, OmronBluetoothException[] error) {
         try {
-            bluetooth.disconnect(deviceMac);
+            bluetooth.subscribe(evt -> {
+                handleNotification(evt, measurements, lock, completed, error);
+            }, mac, OMRON_SERVICE_UUID, OMRON_NOTIFY_UUID);
+
+            byte[] handshake = {0x00, 0x02, 0x00, 0x10, (byte)0x85, 0x00, 0x00, 0x10, (byte)0x8E};
+            bluetooth.write(evt -> logger.log("Handshake sent"), mac, OMRON_SERVICE_UUID, OMRON_WRITE_UUID, Base64.encode(handshake), true);
+            
         } catch (IOException e) {
-            // Log but don't throw - disconnection errors are non-critical
-            System.err.println("Disconnect warning: " + e.getMessage());
+            fail(lock, completed, error, e);
+        }
+    }
+
+    private void handleNotification(ActionEvent evt, List<OmronMeasurement> measurements, Object lock, boolean[] completed, OmronBluetoothException[] error) {
+        try {
+            Map<String, Object> result = (Map<String, Object>) evt.getSource();
+            String value = (String) result.get("value");
+            
+            if (value != null && !value.isEmpty()) {
+                byte[] data = Base64.decode(value.getBytes());
+                OmronMeasurement m = OmronProtocolParser.parse(data);
+                synchronized (lock) { measurements.add(m); }
+                logger.log("Measurement received: " + m);
+            } else {
+                synchronized (lock) { completed[0] = true; lock.notifyAll(); }
+            }
+        } catch (Exception e) {
+            fail(lock, completed, error, e);
+        }
+    }
+
+    private void fail(Object lock, boolean[] completed, OmronBluetoothException[] error, Exception e) {
+        synchronized (lock) {
+            error[0] = new OmronBluetoothException(OmronBluetoothException.ErrorType.DATA_TRANSFER_FAILED, e);
+            completed[0] = true;
+            lock.notifyAll();
         }
     }
 
     /**
-     * Validates MAC address format.
-     * Uses manual validation instead of regex for Codename One compatibility.
-     */
-    private void validateMacAddress(String mac) throws OmronBluetoothException {
-        if (mac == null || mac.trim().isEmpty()) {
-            throw new OmronBluetoothException(OmronBluetoothException.ErrorType.DEVICE_NOT_FOUND,
-                    "MAC address cannot be null or empty");
-        }
-
-        // Manual format validation (AA:BB:CC:DD:EE:FF or AA-BB-CC-DD-EE-FF)
-        // CN1 does not fully support regex, so we validate manually
-        if (!isValidMacFormat(mac)) {
-            throw new OmronBluetoothException(OmronBluetoothException.ErrorType.DEVICE_NOT_FOUND,
-                    "Invalid MAC address format: " + mac);
-        }
-    }
-
-    /**
-     * Validates MAC address format.
-     * Relaxed validation to allow various formats (colon, dash, space, no
-     * separator).
-     * 
-     * @param mac the MAC address string to validate
-     * @return true if valid format, false otherwise
-     */
-    private boolean isValidMacFormat(String mac) {
-        // Just check if it has enough characters to potentially be a MAC address
-        // A raw MAC is 12 hex digits. With separators it's 17.
-        // We'll be permissive and let the connection attempt fail/timeout if it's
-        // wrong.
-        if (mac.length() < 12) {
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * Checks and requests necessary Android permissions.
-     * Uses reflection to avoid compilation errors if the API is not visible in the
-     * IDE.
+     * Checks and requests necessary Android permissions using reflection for compatibility.
      */
     private void checkPermissions() {
-        if ("and".equals(Display.getInstance().getPlatformName())) {
-            try {
-                // Define permission strings
-                String pScan = "android.permission.BLUETOOTH_SCAN";
-                String pConnect = "android.permission.BLUETOOTH_CONNECT";
-                String pLocation = "android.permission.ACCESS_FINE_LOCATION";
+        if (!"and".equals(Display.getInstance().getPlatformName())) return;
+        try {
+            String[] perms = {"android.permission.BLUETOOTH_SCAN", "android.permission.BLUETOOTH_CONNECT", "android.permission.ACCESS_FINE_LOCATION"};
+            Class<?> displayClass = Class.forName("com.codename1.ui.Display");
+            Class<?> actionListenerClass = Class.forName("com.codename1.ui.events.ActionListener");
+            
+            java.lang.reflect.Method hasPermission = displayClass.getMethod("has" + "Permission", String.class);
+            java.lang.reflect.Method requestPermissions = displayClass.getMethod("request" + "Permissions", actionListenerClass, String[].class);
 
-                // Use Class.forName to avoid static analysis linking these lookups to the
-                // Display class definition
-                // which might be missing the methods in the local library version.
-                Class<?> displayClass = Class.forName("com.codename1.ui.Display");
-                Class<?> actionListenerClass = Class.forName("com.codename1.ui.events.ActionListener");
-
-                // Get methods via reflection with obfuscated names
-                java.lang.reflect.Method hasPermission = displayClass.getMethod("has" + "Permission", String.class);
-                java.lang.reflect.Method requestPermissions = displayClass.getMethod("request" + "Permissions",
-                        actionListenerClass, String[].class);
-
-                // Check permissions
-                boolean scanGranted = (Boolean) hasPermission.invoke(Display.getInstance(), pScan);
-                boolean connectGranted = (Boolean) hasPermission.invoke(Display.getInstance(), pConnect);
-                boolean locationGranted = (Boolean) hasPermission.invoke(Display.getInstance(), pLocation);
-
-                if (!scanGranted || !connectGranted || !locationGranted) {
-                    System.out.println("OmronBluetoothService: Requesting permissions via reflection");
-                    requestPermissions.invoke(Display.getInstance(), new ActionListener() {
-                        @Override
-                        public void actionPerformed(ActionEvent evt) {
-                            System.out.println("OmronBluetoothService: Permissions processed");
-                        }
-                    }, new String[] { pScan, pConnect, pLocation });
+            boolean allGranted = true;
+            for (String p : perms) {
+                if (!(Boolean) hasPermission.invoke(Display.getInstance(), p)) {
+                    allGranted = false;
+                    break;
                 }
-            } catch (Exception e) {
-                System.out.println(
-                        "OmronBluetoothService: Failed to request permissions via reflection: " + e.getMessage());
-                // Continue anyway, maybe permissions are already granted or not needed on this
-                // OS version
             }
-        }
-    }
 
-    /**
-     * Checks if a character is a valid hexadecimal digit (0-9, A-F, a-f).
-     */
-    private boolean isHexDigit(char c) {
-        return (c >= '0' && c <= '9') ||
-                (c >= 'A' && c <= 'F') ||
-                (c >= 'a' && c <= 'f');
+            if (!allGranted) {
+                requestPermissions.invoke(Display.getInstance(), (ActionListener) evt -> {}, perms);
+            }
+        } catch (Exception e) {
+            logger.log("Permission check failed: " + e.getMessage());
+        }
     }
 }

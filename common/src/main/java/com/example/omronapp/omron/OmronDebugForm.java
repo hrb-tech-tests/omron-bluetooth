@@ -14,24 +14,18 @@ import com.codename1.ui.TextField;
 import com.codename1.ui.layouts.BorderLayout;
 import com.codename1.ui.layouts.BoxLayout;
 import com.codename1.ui.plaf.Style;
-import com.codename1.ui.plaf.UIManager;
-import com.codename1.components.InfiniteProgress;
+import com.codename1.ui.Display;
 
 import com.codename1.io.FileSystemStorage;
-import com.codename1.io.Util;
 import java.io.OutputStream;
 import java.util.List;
 
 /**
  * DEBUG VERSION of OmronExampleForm
- * 
- * This form uses OmronBluetoothServiceDebug and displays detailed logs.
- * Logs are accumulated across all connection attempts and can be shared via any
- * app.
  */
 public class OmronDebugForm extends Form {
 
-    private static final String APP_TITLE = "OMERON debug 15";
+    private static final String APP_TITLE = "OMERON debug 17";
     private static final String PREF_LAST_MAC_ADDRESS = "omron_last_mac_address";
     private static final String DEFAULT_MAC_HINT = "AA:BB:CC:DD:EE:FF";
 
@@ -43,84 +37,76 @@ public class OmronDebugForm extends Form {
     private final Button clearLogsButton;
     private final Button abortButton;
     private final Button shareLogsButton;
-    private final OmronBluetoothServiceDebug debugService;
+
+    private final OmronBluetoothService service = OmronBluetoothService.INSTANCE;
+    private final OmronLogger.Verbose debugLogger = new OmronLogger.Verbose();
 
     public OmronDebugForm() {
         super(APP_TITLE, BoxLayout.y());
 
-        debugService = new OmronBluetoothServiceDebug();
+        service.setLogger(debugLogger);
 
-        // Status labels
         statusLabel = new Label("DEBUG MODE - Enhanced logging enabled");
-        statusLabel.getAllStyles().setFgColor(0xFF0000); // Red to indicate debug mode
+        statusLabel.getAllStyles().setFgColor(0xFF0000);
         statusLabel.getAllStyles().setFont(Font.createSystemFont(Font.FACE_SYSTEM, Font.STYLE_BOLD, Font.SIZE_SMALL));
 
         formatLabel = new Label(" ");
         formatLabel.getAllStyles().setFgColor(0x0000FF);
         formatLabel.getAllStyles().setFont(Font.createSystemFont(Font.FACE_SYSTEM, Font.STYLE_ITALIC, Font.SIZE_SMALL));
 
-        // MAC address input field
         macAddressField = createMacAddressField();
 
-        // Log display area (larger than normal result area) - MUST be before buttons
-        // that use it
         logArea = new TextArea(15, 40);
         logArea.setEditable(false);
-        logArea.setGrowByContent(false); // Don't grow, use scrollbars instead
-        logArea.getAllStyles().setFont(
-                Font.createSystemFont(Font.FACE_MONOSPACE, Font.STYLE_PLAIN, Font.SIZE_SMALL));
-        logArea.getAllStyles().setBgColor(0x000000); // Black background
-        logArea.getAllStyles().setFgColor(0x00FF00); // Green text (terminal style)
+        logArea.setGrowByContent(false);
+        logArea.getAllStyles().setFont(Font.createSystemFont(Font.FACE_MONOSPACE, Font.STYLE_PLAIN, Font.SIZE_SMALL));
+        logArea.getAllStyles().setBgColor(0x000000);
+        logArea.getAllStyles().setFgColor(0x00FF00);
 
-        // Scan button
         scanButton = new Button("Get Data (Debug Mode)");
-        scanButton.getAllStyles().setBgColor(0xFF0000); // Red for debug
+        scanButton.getAllStyles().setBgColor(0x4FC3F7);
         scanButton.getAllStyles().setFgColor(0xFFFFFF);
         scanButton.getAllStyles().setBgTransparency(200);
         scanButton.getAllStyles().setFont(Font.createSystemFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_SMALL));
         scanButton.addActionListener(e -> retrieveDeviceData());
 
-        // Share logs button - MUST be before clearLogsButton that uses it
         shareLogsButton = new Button("");
         shareLogsButton
                 .setIcon(FontImage.createMaterial(FontImage.MATERIAL_SHARE, shareLogsButton.getUnselectedStyle()));
-        shareLogsButton.getAllStyles().setBgColor(0x0000FF); // Blue
+        shareLogsButton.getAllStyles().setBgColor(0x90EE90);
         shareLogsButton.getAllStyles().setFgColor(0xFFFFFF);
         shareLogsButton.getAllStyles().setBgTransparency(200);
-        shareLogsButton.setEnabled(false); // Disabled until we have logs
+        shareLogsButton.setEnabled(false);
         shareLogsButton.addActionListener(e -> shareLogs());
 
-        // Clear logs button
         clearLogsButton = new Button("Clear Logs");
-        clearLogsButton.getAllStyles().setBgColor(0x666666);
+        clearLogsButton.getAllStyles().setBgColor(0xFFA500);
         clearLogsButton.getAllStyles().setFgColor(0xFFFFFF);
         clearLogsButton.getAllStyles().setBgTransparency(200);
         clearLogsButton.getAllStyles()
                 .setFont(Font.createSystemFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_SMALL));
         clearLogsButton.addActionListener(e -> {
             logArea.setText("");
-            debugService.clearDebugLogs();
+            debugLogger.clear();
             statusLabel.setText("Logs cleared");
             shareLogsButton.setEnabled(false);
         });
 
-        // Abort & Clear button
         abortButton = new Button("Abort & Clear");
-        abortButton.getAllStyles().setBgColor(0xAA0000); // Darker red
+        abortButton.getAllStyles().setBgColor(0xAA0000);
         abortButton.getAllStyles().setFgColor(0xFFFFFF);
         abortButton.getAllStyles().setBgTransparency(200);
         abortButton.getAllStyles().setFont(Font.createSystemFont(Font.FACE_SYSTEM, Font.STYLE_PLAIN, Font.SIZE_SMALL));
-        abortButton.setEnabled(false); // Only enabled during scan
+        abortButton.setEnabled(false);
         abortButton.addActionListener(e -> {
-            debugService.abort();
+            service.abort();
             logArea.setText("");
-            debugService.clearDebugLogs();
+            debugLogger.clear();
             statusLabel.setText("Aborted and logs cleared");
             shareLogsButton.setEnabled(false);
             resetUIState();
         });
 
-        // Layout
         Container macContainer = new Container(new BorderLayout());
         macContainer.add(BorderLayout.WEST, new Label("MAC:"));
         macContainer.add(BorderLayout.CENTER, macAddressField);
@@ -138,427 +124,117 @@ public class OmronDebugForm extends Form {
         add(logArea);
         add(abortButton);
 
-        // Load last used MAC address
         loadLastMacAddress();
-
-        // Show initial help
-        logArea.setText("Logs from " + getTitle() + ":\n\n" +
-                "DEBUG MODE ACTIVE\n" +
-                "=================\n" +
-                "This version logs every step of the Bluetooth communication.\n" +
-                "Enter a MAC address and tap 'Get Data' to begin.\n" +
-                "All operations will be logged below in real-time.\n\n" +
-                "Logs accumulate across all 4 connection attempts.\n" +
-                "After attempts complete, use 'Share Logs' to send via email/etc.\n\n" +
-                "Look for:\n" +
-                "- Connection status\n" +
-                "- Subscription status\n" +
-                "- Notification count\n" +
-                "- Any errors or warnings\n\n" +
-                "Ready to start...\n");
+        logArea.setText("Debug Mode Initialized.\nReady to start...\n");
     }
 
     private TextField createMacAddressField() {
         TextField field = new TextField();
         field.setHint(DEFAULT_MAC_HINT);
-
         Style style = field.getAllStyles();
-        style.setFont(
-                Font.createSystemFont(Font.FACE_MONOSPACE, Font.STYLE_BOLD, Font.SIZE_MEDIUM));
+        style.setFont(Font.createSystemFont(Font.FACE_MONOSPACE, Font.STYLE_BOLD, Font.SIZE_MEDIUM));
         style.setFgColor(0x00008B);
-
         field.addDataChangedListener((type, index) -> {
             String text = field.getText();
             if (text != null && !text.equals(text.toUpperCase())) {
-                int cursorPos = field.getCursorPosition();
                 field.setText(text.toUpperCase());
-                if (cursorPos <= field.getText().length()) {
-                    field.setCursorPosition(cursorPos);
-                }
             }
         });
-
         return field;
     }
 
     private void loadLastMacAddress() {
-        String LastMac = Preferences.get(PREF_LAST_MAC_ADDRESS, "");
-        if (LastMac != null && !LastMac.isEmpty()) {
-            macAddressField.setText(LastMac);
-        }
-    }
-
-    private void saveMacAddress(String mac) {
-        if (mac != null && !mac.isEmpty()) {
-            Preferences.set(PREF_LAST_MAC_ADDRESS, mac);
+        String lastMac = Preferences.get(PREF_LAST_MAC_ADDRESS, "");
+        if (lastMac != null && !lastMac.isEmpty()) {
+            macAddressField.setText(lastMac);
         }
     }
 
     private void retrieveDeviceData() {
         String inputMac = macAddressField.getText();
-
-        if (inputMac == null || inputMac.trim().isEmpty()) {
-            Dialog.show("Input Required", "Please enter the device MAC address.", "OK", null);
+        if (inputMac == null || inputMac.trim().isEmpty())
             return;
-        }
 
-        // Generate formats
-        java.util.List<String> macFormats = generateMacFormats(inputMac);
-        String[] formatDescriptions = {
-                "Colon Separated (AA:BB...)",
-                "No Separator (AABB...)"
-        };
+        Preferences.set(PREF_LAST_MAC_ADDRESS, inputMac);
 
-        if (macFormats.isEmpty()) {
-            Dialog.show("Invalid Format",
-                    "Could not parse MAC address. Please ensure you entered 12 hex digits.",
-                    "OK", null);
-            return;
-        }
-
-        saveMacAddress(inputMac);
-
-        // Reset abort flag before starting new cycle
-        debugService.resetAbort();
-
-        // Update UI state - disable buttons during attempts
         scanButton.setEnabled(false);
-        // Use a sync icon to indicate progress
         scanButton.setIcon(FontImage.createMaterial(FontImage.MATERIAL_SYNC, scanButton.getUnselectedStyle()));
-
-        macAddressField.setEnabled(false);
-        clearLogsButton.setEnabled(false);
-        shareLogsButton.setEnabled(false);
         abortButton.setEnabled(true);
+        debugLogger.clear();
 
-        // Capture title on EDT
-        final String currentTitle = getTitle();
-
-        // DON'T clear logs - accumulate across all attempts
-        // Add separator if this is not the first run
-        String currentLogs = logArea.getText();
-        if (currentLogs != null && !currentLogs.trim().isEmpty() &&
-                !currentLogs.contains("DEBUG MODE ACTIVE")) {
-            CN.callSerially(() -> {
-                String separator = "";
-                for (int j = 0; j < 60; j++)
-                    separator += "=";
-                logArea.setText(currentLogs + "\n\n" +
-                        separator + "\n" +
-                        "NEW ATTEMPT CYCLE (" + currentTitle + ") - " + new java.util.Date() + "\n" +
-                        separator + "\n\n");
-            });
-        }
-
-        // Run in background thread
         new Thread(() -> {
-            boolean success = false;
-            String lastError = "Unknown error";
-
-            for (int i = 0; i < macFormats.size(); i++) {
-                if (debugService.isAborted()) {
-                    break;
-                }
-                String currentMac = macFormats.get(i);
-                String formatDesc = (i < formatDescriptions.length) ? formatDescriptions[i] : "Unknown Format";
-
-                final int attemptNum = i + 1;
-                final int total = macFormats.size();
-
-                // Add visual separator for each attempt
-                final String attemptSeparator = "\n" + createSeparator("=", 60) + "\n" +
-                        "Logs from " + currentTitle + ":\n\n" +
-                        "ATTEMPT " + attemptNum + "/" + total + ": " + formatDesc + "\n" +
-                        "MAC Format: " + currentMac + "\n" +
-                        createSeparator("-", 60) + "\n";
-
+            try {
+                String jsonData = service.getDataFromDevice(inputMac);
                 CN.callSerially(() -> {
-                    String currentText = logArea.getText();
-                    logArea.setText(currentText + attemptSeparator);
-                });
-
-                // Update status on EDT
-                CN.callSerially(() -> {
-                    statusLabel.setText("Attempt " + attemptNum + "/" + total + ": " + formatDesc);
-                    formatLabel.setText("Processing: " + currentMac);
                     updateLogDisplay();
+                    Dialog.show("Success", "Data retrieved!", "OK", null);
+                    showJsonDialog(jsonData);
+                    resetUIState();
                 });
-
-                try {
-                    // Try to connect
-                    String jsonData = debugService.getDataFromDevice(currentMac);
-
-                    // If we get here, it worked!
-                    CN.callSerially(() -> {
-                        statusLabel.setText("SUCCESS! Connected using " + formatDesc);
-                        formatLabel.setText("Device: " + currentMac);
-                        updateLogDisplay();
-
-                        // Show success dialog with option to view JSON
-                        if (Dialog.show("Success!",
-                                "Data retrieved successfully!\n\nView JSON data?",
-                                "Yes", "No")) {
-                            showJsonDialog(jsonData);
-                        }
-
-                        // Enable share button and reset other UI
-                        shareLogsButton.setEnabled(true);
-                        resetUIState();
-                    });
-                    success = true;
-                    break;
-
-                } catch (OmronBluetoothException ex) {
-                    lastError = ex.getMessage();
-
-                    // Update logs after each attempt
-                    CN.callSerially(() -> {
-                        updateLogDisplay();
-                    });
-
-                    if (ex.getErrorType() == OmronBluetoothException.ErrorType.ABORTED) {
-                        break;
-                    }
-
-                    if (i < macFormats.size() - 1) {
-                        CN.callSerially(() -> {
-                            statusLabel.setText("Attempt " + attemptNum + " failed. Waiting 1s...");
-                        });
-                        try {
-                            Thread.sleep(1000);
-                        } catch (InterruptedException ie) {
-                            break;
-                        }
-                    }
-                } catch (Exception e) {
-                    lastError = e.getMessage();
-                    e.printStackTrace();
-
-                    CN.callSerially(() -> {
-                        updateLogDisplay();
-                    });
-
-                    if (i < macFormats.size() - 1) {
-                        try {
-                            Thread.sleep(1000);
-                        } catch (InterruptedException ie) {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (!success) {
-                final String finalError = lastError;
+            } catch (OmronBluetoothException ex) {
                 CN.callSerially(() -> {
-                    statusLabel.setText("All attempts failed");
-                    formatLabel.setText(" ");
                     updateLogDisplay();
-
-                    Dialog.show("Connection Failed",
-                            "Failed to connect using any MAC format.\n\n" +
-                                    "Check the debug logs for details.\n\n" +
-                                    "Last error: " + finalError,
-                            "OK", null);
-
-                    // Enable share button only if not aborted
-                    if (!debugService.isAborted()) {
-                        shareLogsButton.setEnabled(true);
-                    }
+                    Dialog.show("Error", ex.getMessage(), "OK", null);
+                    resetUIState();
+                });
+            } catch (Exception e) {
+                CN.callSerially(() -> {
+                    updateLogDisplay();
+                    Dialog.show("Error", e.getMessage(), "OK", null);
                     resetUIState();
                 });
             }
+        }).start();
 
+        // Background log update without blocking
+        new Thread(() -> {
+            while (!scanButton.isEnabled()) {
+                CN.callSerially(() -> updateLogDisplay());
+                try {
+                    Thread.sleep(2000);
+                } catch (Exception e) {
+                }
+            }
         }).start();
     }
 
-    /**
-     * Update the log display with latest debug logs
-     */
     private void updateLogDisplay() {
-        if (debugService.isAborted()) {
-            logArea.setText("");
-            debugService.clearDebugLogs();
-            return;
-        }
-
-        List<String> logs = debugService.getDebugLogs();
+        List<String> logs = debugLogger.getLogs();
         StringBuilder sb = new StringBuilder();
-
-        // Get existing logs
-        String existing = logArea.getText();
-        if (existing != null && !existing.isEmpty()) {
-            sb.append(existing);
-            // Only add newline if existing doesn't end with one
-            if (!existing.endsWith("\n")) {
-                sb.append("\n");
-            }
-        }
-
-        // Append new logs
         for (String log : logs) {
             sb.append(log).append("\n");
         }
-
         logArea.setText(sb.toString());
-
-        // Enable share button if we have logs and not aborted
-        if (sb.length() > 0 && !debugService.isAborted()) {
+        if (sb.length() > 0)
             shareLogsButton.setEnabled(true);
-        }
-
-        // Clear the logs in the service after they've been moved to the UI
-        // to avoid duplication in the next updateLogDisplay call
-        debugService.clearDebugLogs();
     }
 
-    /**
-     * Share logs using system share dialog
-     */
     private void shareLogs() {
-        String logs = logArea.getText();
-
-        if (logs == null || logs.trim().isEmpty()) {
-            Dialog.show("No Logs", "No logs to share yet.", "OK", null);
-            return;
-        }
-
-        // Use file-based sharing for large logs to bypass system intent limits
         try {
-            String fileName = "omron_debug_logs.txt";
-            String path = FileSystemStorage.getInstance().getAppHomePath() + fileName;
-
-            // Write logs to file
+            String path = FileSystemStorage.getInstance().getAppHomePath() + "omron_logs.txt";
             try (OutputStream os = FileSystemStorage.getInstance().openOutputStream(path)) {
-                os.write(logs.getBytes("UTF-8"));
+                os.write(logArea.getText().getBytes("UTF-8"));
             }
-
-            // Share the file
-            com.codename1.ui.Display.getInstance().share(null, path, "text/plain");
-
+            Display.getInstance().share(null, path, "text/plain");
         } catch (Exception e) {
-            Dialog.show("Share Failed",
-                    "Could not open share dialog: " + e.getMessage() + "\n\n" +
-                            "You can manually copy the logs from the screen.",
-                    "OK", null);
+            Dialog.show("Error", "Share failed", "OK", null);
         }
     }
 
-    /**
-     * Show JSON data in a dialog
-     */
     private void showJsonDialog(String json) {
-        Form jsonForm = new Form("JSON Data", new BorderLayout());
-
-        TextArea jsonArea = new TextArea(20, 40);
-        jsonArea.setEditable(false);
-        jsonArea.setText(formatJson(json));
-        jsonArea.getAllStyles().setFont(
-                Font.createSystemFont(Font.FACE_MONOSPACE, Font.STYLE_PLAIN, Font.SIZE_SMALL));
-
-        Button closeButton = new Button("Close");
-        closeButton.addActionListener(e -> jsonForm.showBack());
-
-        jsonForm.add(BorderLayout.CENTER, jsonArea);
-        jsonForm.add(BorderLayout.SOUTH, closeButton);
-        jsonForm.show();
+        Form f = new Form("JSON Data", new BorderLayout());
+        TextArea area = new TextArea(json);
+        area.setEditable(false);
+        f.add(BorderLayout.CENTER, area);
+        Button closeBtn = new Button("Close");
+        closeBtn.addActionListener(e -> f.showBack());
+        f.add(BorderLayout.SOUTH, closeBtn);
+        f.show();
     }
 
     private void resetUIState() {
         scanButton.setEnabled(true);
         scanButton.setIcon(null);
-        macAddressField.setEnabled(true);
-        clearLogsButton.setEnabled(true);
         abortButton.setEnabled(false);
-        // shareLogsButton state is managed separately
-    }
-
-    private java.util.List<String> generateMacFormats(String input) {
-        java.util.List<String> formats = new java.util.ArrayList<>();
-        if (input == null)
-            return formats;
-
-        String raw = input.replaceAll("[^0-9A-Fa-f]", "").toUpperCase();
-
-        if (raw.length() != 12) {
-            return formats;
-        }
-
-        StringBuilder colon = new StringBuilder();
-
-        for (int i = 0; i < 12; i += 2) {
-            String byteStr = raw.substring(i, i + 2);
-            colon.append(byteStr);
-            if (i < 10) {
-                colon.append(":");
-            }
-        }
-
-        formats.add(colon.toString()); // AA:BB:CC:DD:EE:FF
-        formats.add(raw); // AABBCCDDEEFF
-
-        return formats;
-    }
-
-    private String formatJson(String json) {
-        if (json == null) {
-            return "";
-        }
-
-        StringBuilder formatted = new StringBuilder();
-        int indent = 0;
-        boolean inString = false;
-
-        for (int i = 0; i < json.length(); i++) {
-            char c = json.charAt(i);
-
-            if (c == '"' && (i == 0 || json.charAt(i - 1) != '\\')) {
-                inString = !inString;
-            }
-
-            if (!inString) {
-                if (c == '{' || c == '[') {
-                    formatted.append(c);
-                    formatted.append('\n');
-                    indent++;
-                    appendIndent(formatted, indent);
-                } else if (c == '}' || c == ']') {
-                    formatted.append('\n');
-                    indent--;
-                    appendIndent(formatted, indent);
-                    formatted.append(c);
-                } else if (c == ',') {
-                    formatted.append(c);
-                    formatted.append('\n');
-                    appendIndent(formatted, indent);
-                } else if (c == ':') {
-                    formatted.append(c);
-                    formatted.append(' ');
-                } else {
-                    formatted.append(c);
-                }
-            } else {
-                formatted.append(c);
-            }
-        }
-
-        return formatted.toString();
-    }
-
-    private void appendIndent(StringBuilder sb, int level) {
-        for (int i = 0; i < level * 2; i++) {
-            sb.append(' ');
-        }
-    }
-
-    /**
-     * Create a separator line with repeated characters
-     */
-    private String createSeparator(String character, int length) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < length; i++) {
-            sb.append(character);
-        }
-        return sb.toString();
     }
 }
