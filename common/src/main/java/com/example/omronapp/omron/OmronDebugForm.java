@@ -25,7 +25,7 @@ import java.util.List;
  */
 public class OmronDebugForm extends Form {
 
-    private static final String APP_TITLE = "OMERON debug 20";
+    private static final String APP_TITLE = "OMERON debug 21";
     private static final String PREF_LAST_MAC_ADDRESS = "omron_last_mac_address";
     private static final String DEFAULT_MAC_HINT = "AA:BB:CC:DD:EE:FF";
 

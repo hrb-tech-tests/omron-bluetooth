@@ -98,7 +98,7 @@ public enum OmronBluetoothService {
                 } catch (IOException e) {
                     fail(lock, completed, error, e);
                 }
-            }, null, false, Bluetooth.SCAN_MODE_LOW_LATENCY, Bluetooth.MATCH_MODE_STICKY, Bluetooth.MATCH_NUM_MAX_ADVERTISEMENT, Bluetooth.CALLBACK_TYPE_ALL_MATCHES);
+            }, null, true, Bluetooth.SCAN_MODE_LOW_LATENCY, Bluetooth.MATCH_MODE_AGGRESSIVE, Bluetooth.MATCH_NUM_ONE_ADVERTISEMENT, Bluetooth.CALLBACK_TYPE_ALL_MATCHES);
 
 
             synchronized (lock) {
