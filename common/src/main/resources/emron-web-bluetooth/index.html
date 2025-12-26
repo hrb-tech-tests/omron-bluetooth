@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en" ng-app="omronApp">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMRON Web Bluetooth</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.8.2/angular.min.js"></script>
+    <style>
+        body, html {
+            font-family: sans-serif;
+            height: 100%;
+            margin: 0;
+            padding: 10px;
+            box-sizing: border-box;
+            background-color: #f0f0f0;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .connection-bar {
+            display: flex;
+            margin-bottom: 10px;
+        }
+        #macAddress {
+            flex-grow: 1;
+            margin-right: 10px;
+            font-size: 1em;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        #connectBtn {
+            font-size: 1em;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        #connectBtn:disabled {
+            background-color: #cccccc;
+        }
+        .textarea-group {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        textarea {
+            width: 100%;
+            flex-grow: 1;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            padding: 8px;
+            box-sizing: border-box;
+            font-family: monospace;
+        }
+        label {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body ng-controller="OmronController as vm">
+
+    <div class="container">
+        <div class="connection-bar">
+            <input type="text" id="macAddress" ng-model="vm.macAddress" placeholder="FE:22:74:61:2F:FB" ng-change="vm.validateMac()">
+            <button id="connectBtn" ng-click="vm.connect()" ng-disabled="!vm.isMacValid">Connect</button>
+        </div>
+
+        <div class="textarea-group">
+            <div>
+                <label for="jsonData">JSON Data:</label>
+                <textarea id="jsonData" ng-model="vm.jsonData" rows="8"></textarea>
+            </div>
+            <div>
+                <label for="logs">Logs:</label>
+                <textarea id="logs" ng-model="vm.logs" rows="8" readonly></textarea>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        angular.module('omronApp', [])
+            .controller('OmronController', function($scope, $log) {
+                var vm = this;
+                vm.macAddress = '';
+                vm.isMacValid = false;
+                vm.jsonData = '';
+                vm.logs = 'App started. Enter device MAC address.\n';
+                vm.device = null;
+                vm.server = null;
+
+                const BLOOD_PRESSURE_SERVICE_UUID = '00001810-0000-1000-8000-00805f9b34fb';
+                const BLOOD_PRESSURE_MEASUREMENT_CHARACTERISTIC_UUID = '00002a35-0000-1000-8000-00805f9b34fb';
+
+                vm.validateMac = function() {
+                    const macRegex = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
+                    vm.isMacValid = macRegex.test(vm.macAddress);
+                };
+
+                vm.log = function(message) {
+                    $scope.$apply(() => {
+                        vm.logs += message + '\n';
+                    });
+                };
+                
+                window.getAngularScope = function() {
+                    var el = document.querySelector('[ng-controller]');
+                    return angular.element(el).scope().vm;
+                };
+
+                vm.clear = function() {
+                    vm.jsonData = '';
+                    vm.logs = 'Cleared.\n';
+                    // Inform Java that data is cleared
+                    if (window.codenameOne) {
+                        window.codenameOne.callJSON('onDataReady', '');
+                    }
+                }
+
+                vm.connect = async function() {
+                    vm.clear();
+                    vm.log('Requesting Bluetooth device...');
+
+                    // Note: Web Bluetooth API does not allow connecting by MAC address for security reasons.
+                    // The user MUST select a device from the browser's device picker.
+                    // The MAC address field is for user reference only, but we use its validity to enable the button.
+                    
+                    try {
+                        vm.device = await navigator.bluetooth.requestDevice({
+                             filters: [{ services: [BLOOD_PRESSURE_SERVICE_UUID] }]
+                        });
+
+                        vm.log(`Device selected: ${vm.device.name}`);
+                        vm.device.addEventListener('gattserverdisconnected', vm.onDisconnected);
+                        
+                        vm.log('Connecting to GATT Server...');
+                        vm.server = await vm.device.gatt.connect();
+
+                        vm.log('Getting Blood Pressure Service...');
+                        const service = await vm.server.getPrimaryService(BLOOD_PRESSURE_SERVICE_UUID);
+
+                        vm.log('Getting Blood Pressure Measurement Characteristic...');
+                        const characteristic = await service.getCharacteristic(BLOOD_PRESSURE_MEASUREMENT_CHARACTERISTIC_UUID);
+
+                        vm.log('Starting notifications...');
+                        await characteristic.startNotifications();
+                        characteristic.addEventListener('characteristicvaluechanged', vm.handleNotifications);
+                        vm.log('Connected and subscribed to notifications.');
+
+                    } catch(error) {
+                        vm.log(`Error: ${error}`);
+                    }
+                };
+
+                vm.abort = async function() {
+                    if (vm.device && vm.server && vm.server.connected) { // Check vm.server.connected
+                        vm.log('Disconnecting from device...');
+                        await vm.server.disconnect(); // Use vm.server.disconnect()
+                    } else {
+                         vm.log('No device connected or already disconnected.');
+                    }
+                    vm.clear();
+                };
+
+                vm.onDisconnected = function() {
+                    vm.log('Device disconnected.');
+                    vm.device = null;
+                    vm.server = null;
+                    // Inform Java that data might be stale or cleared
+                    if (window.codenameOne) {
+                        window.codenameOne.callJSON('onDataReady', '');
+                    }
+                };
+
+                vm.handleNotifications = function(event) {
+                    const value = event.target.value;
+                    const measurements = [];
+                    
+                    // Simple parser for Blood Pressure Measurement characteristic
+                    const flags = value.getUint8(0);
+                    const isImperial = flags & 0x01; // Bit 0: Blood Pressure Measurement Unit (0 = kPa, 1 = mmHg)
+                    const hasTimestamp = flags & 0x02; // Bit 1: Time Stamp Flag
+                    const hasPulseRate = flags & 0x04; // Bit 2: Pulse Rate Flag
+                    // Bit 3: User ID Flag (ignored)
+                    // Bit 4: Measurement Status Flag (ignored)
+                    
+                    let index = 1; // Start after flags byte
+                    
+                    const systolic = value.getUint16(index, true); // Little-endian
+                    index += 2;
+                    const diastolic = value.getUint16(index, true); // Little-endian
+                    index += 2;
+                    const map = value.getUint16(index, true); // Mean Arterial Pressure, Little-endian
+                    index += 2;
+
+                    const measurement = {
+                        units: isImperial ? 'mmHg' : 'kPa',
+                        systolic: systolic / (isImperial ? 1 : 1000), // Convert to kPa if needed
+                        diastolic: diastolic / (isImperial ? 1 : 1000),
+                        meanArterialPressure: map / (isImperial ? 1 : 1000)
+                    };
+
+                    if (hasTimestamp) {
+                        // Date is a SFLOAT-Type. For simplicity, skipping detailed parsing.
+                        // Codename One's IwWebBrowser1.java example also skipped complex date/time parsing.
+                        // Year (Uint16), Month (Uint8), Day (Uint8), Hour (Uint8), Minute (Uint8), Second (Uint8)
+                        // For a simple example, I'll just advance the index
+                        index += 7; // 2 (year) + 5 * 1 (month,day,hour,min,sec)
+                    }
+
+                    if (hasPulseRate) {
+                        measurement.pulseRate = value.getUint16(index, true); // Little-endian
+                        index += 2;
+                    }
+
+                    measurements.push(measurement);
+                    
+                    $scope.$apply(() => {
+                        vm.jsonData = angular.toJson(measurements, true);
+                        // Call Java to inform about new data
+                        if (window.codenameOne) {
+                            window.codenameOne.callJSON('onDataReady', vm.jsonData);
+                        }
+                    });
+                    
+                    vm.log('Received and parsed measurement.');
+                };
+
+                // Expose getJsonData to be called from Java
+                vm.getJsonData = function() {
+                    return vm.jsonData;
+                };
+            });
+    </script>
+</body>
+</html>

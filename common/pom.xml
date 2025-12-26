@@ -16,6 +16,7 @@
         <dependency>
             <groupId>com.codenameone</groupId>
             <artifactId>codenameone-core</artifactId>
+            <version>7.0.216</version> <!-- Explicitly set version -->
             <scope>provided</scope>
         </dependency>
 
