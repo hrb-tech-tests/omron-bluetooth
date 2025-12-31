@@ -1,20 +1,50 @@
 package com.example.omronapp.emronwebbluetooth;
 
+import com.codename1.io.Util;
 import com.codename1.ui.BrowserComponent;
+import com.codename1.ui.Display;
 import com.codename1.ui.events.ActionListener;
-import com.codename1.ui.events.ActionEvent; 
+import com.codename1.ui.events.ActionEvent;
+import java.io.IOException;
+import java.io.InputStream;
 
 public class IwWebBrowseBluetooth extends BrowserComponent {
 
     private ActionListener<ActionEvent> loadCompletedListener;
     private ActionListener<ActionEvent> onDataReadyListener;
 
-
     public IwWebBrowseBluetooth() {
         super();
-        this.setURL("/emron-web-bluetooth/index.html");
-        // Removed setJavascriptMode(BrowserComponent.JAVASCRIPT_MODE_JAVASCRIPT_LIGHT);
-        // It seems unnecessary or was used with an invalid constant.
+        
+        try {
+            // Load angular.min.js content
+            InputStream angularJsStream = getClass().getResourceAsStream( "/angular.min.js");  //  getClass().getResourceAsStream("angular.min.js");
+            if (angularJsStream == null) {
+                throw new IOException("Resource 111122223 not found: angular.min.js");
+            }
+            String angularJsContent = Util.readToString(angularJsStream);
+
+            // Load index.html content
+            InputStream indexHtmlStream = Display.getInstance().getResourceAsStream(null, "/index.html");
+            if (indexHtmlStream == null) {
+                throw new IOException("Resource 2222333334 not found: index.html");
+            }
+            String indexHtmlContent = Util.readToString(indexHtmlStream);
+
+            // Replace the script tag with the inlined content of angular.min.js
+            String finalHtml = indexHtmlContent.replace(
+                "<script src=\"angular.min.js\"></script>",
+                "<script>" + angularJsContent + "</script>"
+            );
+
+            // Load the final self-contained HTML. Base URL can be null as there are no more external resources.
+            this.setPage(finalHtml, null);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            // Display an error message inside the component if loading fails.
+            this.setPage("<html><body><h1>Error</h1><p>Could not load resources: " + e.getMessage() + "</p></body></html>", null);
+        }
 
         addWebEventListener(BrowserComponent.onLoad, (evt) -> {
             if (loadCompletedListener != null) {
@@ -25,7 +55,6 @@ public class IwWebBrowseBluetooth extends BrowserComponent {
         // Add callback for when data is ready in JS
         addJSCallback("onDataReady", (res) -> {
             if (onDataReadyListener != null) {
-                // Fixed: Use ActionEvent.Type.Other for custom event types.
                 onDataReadyListener.actionPerformed(new ActionEvent(res.getValue(), ActionEvent.Type.Other));
             }
         });
@@ -36,7 +65,6 @@ public class IwWebBrowseBluetooth extends BrowserComponent {
      * @return A JSON string with the captured data, or an empty string if not ready.
      */
     public String getJsonData() {
-        // This relies on the getAngularScope() and getJsonData() functions defined in index.html
         String script = "return getAngularScope().getJsonData();";
         JSRef jsRef = executeAndWait(script); 
         return (jsRef != null) ? jsRef.getValue() : ""; 
@@ -46,7 +74,6 @@ public class IwWebBrowseBluetooth extends BrowserComponent {
      * Executes the abort() function in the Javascript scope to disconnect the device and clear the UI.
      */
     public void abort() {
-        // This calls the abort function in the AngularJS controller
         execute("getAngularScope().abort();");
     }
     
