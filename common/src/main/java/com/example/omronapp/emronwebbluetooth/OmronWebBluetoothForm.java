@@ -35,35 +35,31 @@ public class OmronWebBluetoothForm extends Form {
         abortButton = new Button("Abort");
 
         // --- Style Buttons ---
-        styleButton(capturedDataButton, 0x007bff, false); // Blue background
-        styleButton(abortButton, 0xdc3545, false); // Red background
-        
+        styleButton(abortButton, 0xdc3545, false); // Red background for Abort
+        styleEnabledButton(capturedDataButton); // Style for enabled state
+        styleDisabledButton(capturedDataButton); // Style for disabled state
+
         // --- Button State ---
         capturedDataButton.setEnabled(false); // Disabled by default
+        abortButton.setEnabled(true); // Always enabled
 
         // --- Button Listeners ---
         abortButton.addActionListener(e -> {
             webBrowser.abort();
-            capturedDataButton.setEnabled(false);
+            capturedDataButton.setEnabled(false); // Disable on abort
         });
 
         capturedDataButton.addActionListener(e -> {
-            String jsonData = webBrowser.getJsonData();
-            if (jsonData != null && !jsonData.isEmpty() && !jsonData.equals("null") && !jsonData.equals("[]")) {
-                Dialog.show("Captured Data", jsonData, "OK", null);
-            } else {
-                Dialog.show("No Data", "No data has been captured from the device.", "OK", null);
-            }
+            // On capture, just close the form. Data will be retrieved by the caller.
+            showBack();
         });
-        
-        // Listener to enable the "Get Captured Data" button when data is ready from JS
+
+        // Listener to enable/disable the "Capture" button based on data from JS
         webBrowser.setOnDataReadyListener(evt -> {
-            // evt.getSource() will be the JSON data string from JS
-            String jsonData = (String)evt.getSource();
+            String jsonData = (String) evt.getSource();
             boolean hasData = jsonData != null && !jsonData.isEmpty() && !jsonData.equals("null") && !jsonData.equals("[]");
             capturedDataButton.setEnabled(hasData);
         });
-
 
         // --- Add buttons to the SOUTH container ---
         Container southContainer = new Container(new GridLayout(1, 4));
@@ -73,7 +69,23 @@ public class OmronWebBluetoothForm extends Form {
         southContainer.add(new Label());
         add(BorderLayout.SOUTH, southContainer);
     }
-    
+
+    /**
+     * Retrieves the captured JSON data from the web component.
+     * @return The JSON data string, or an empty string if not available.
+     */
+    public String getJsonData() {
+        return webBrowser.getJsonData();
+    }
+
+    /**
+     * Retrieves the logs from the web component.
+     * @return The log string, or an empty string if not available.
+     */
+    public String getLogs() {
+        return webBrowser.getLogs();
+    }
+
     private void styleButton(Button button, int bgColor, boolean bold) {
         Style style = button.getAllStyles();
         style.setBgColor(bgColor);
@@ -82,9 +94,25 @@ public class OmronWebBluetoothForm extends Form {
         style.setPadding(2, 2, 1, 1);
         style.setMargin(1, 1, 10, 5);
         if (bold) {
-            // Use Font.createSystemFont with explicit parameters to create a bold font.
-            // This bypasses any issues with the derive method overloads.
-            style.setFont(Font.createSystemFont(style.getFont().getFace(), Font.STYLE_PLAIN, style.getFont().getSize()));
+            style.setFont(Font.createSystemFont(style.getFont().getFace(), Font.STYLE_BOLD, style.getFont().getSize()));
         }
+    }
+
+    private void styleEnabledButton(Button button) {
+        Style style = button.getUnselectedStyle();
+        style.setBgColor(0x007bff); // Blue background for enabled
+        style.setFgColor(0xFFFFFF);
+        style.setBorder(RoundBorder.create().rectangle(true).color(0x007bff).strokeColor(0));
+        style.setPadding(2, 2, 1, 1);
+        style.setMargin(1, 1, 10, 5);
+    }
+
+    private void styleDisabledButton(Button button) {
+        Style style = button.getDisabledStyle();
+        style.setBgColor(0xcccccc); // Gray background for disabled
+        style.setFgColor(0x666666);
+        style.setBorder(RoundBorder.create().rectangle(true).color(0xcccccc).strokeColor(0));
+        style.setPadding(2, 2, 1, 1);
+        style.setMargin(1, 1, 10, 5);
     }
 }

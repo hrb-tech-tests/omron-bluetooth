@@ -71,6 +71,16 @@ public class IwWebBrowseBluetooth extends BrowserComponent {
     }
 
     /**
+     * Executes JavaScript to get the logs from the AngularJS scope and returns them.
+     * @return A string with the logs, or an empty string if not available.
+     */
+    public String getLogs() {
+        String script = "return getAngularScope().getLogs();";
+        JSRef jsRef = executeAndWait(script);
+        return (jsRef != null) ? jsRef.getValue() : "";
+    }
+
+    /**
      * Executes the abort() function in the Javascript scope to disconnect the device and clear the UI.
      */
     public void abort() {
