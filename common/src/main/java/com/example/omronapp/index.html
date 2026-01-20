@@ -83,127 +83,175 @@
                 vm.logs = 'App started. Press Connect to search for devices.\n';
                 vm.device = null;
                 vm.server = null;
+                vm.allMeasurements = [];
 
                 const BLOOD_PRESSURE_SERVICE_UUID = '00001810-0000-1000-8000-00805f9b34fb';
                 const BLOOD_PRESSURE_MEASUREMENT_CHARACTERISTIC_UUID = '00002a35-0000-1000-8000-00805f9b34fb';
 
+                // --- Logging and Scope Management ---
                 vm.log = function(message) {
-                    $scope.$apply(() => {
+                    console.log(message); // Also log to browser console for easier debugging
+                    $scope.$applyAsync(() => {
                         vm.logs += message + '\n';
                     });
                 };
-                
+
                 window.getAngularScope = function() {
                     var el = document.querySelector('[ng-controller]');
                     return angular.element(el).scope().vm;
                 };
 
+                // --- Data & State Management ---
                 vm.clear = function() {
-                    vm.jsonData = '';
-                    vm.logs = 'Cleared.\n';
+                    vm.allMeasurements = [];
+                    $scope.$applyAsync(() => {
+                        vm.jsonData = '';
+                        vm.logs = 'App started. Press Connect to search for devices.\n';
+                    });
                     if (window.codenameOne) {
                         window.codenameOne.callJSON('onDataReady', '');
                     }
-                }
+                    vm.log('UI and data cleared.');
+                };
 
                 vm.connect = async function() {
                     vm.clear();
-                    vm.log('Requesting Bluetooth device...');
-                    
+                    vm.log('Requesting Bluetooth device with service: ' + BLOOD_PRESSURE_SERVICE_UUID);
+                    document.getElementById('connectBtn').disabled = true;
+
                     try {
                         vm.device = await navigator.bluetooth.requestDevice({
-                             filters: [{ services: [BLOOD_PRESSURE_SERVICE_UUID] }]
+                            filters: [{ services: [BLOOD_PRESSURE_SERVICE_UUID] }],
+                            optionalServices: ['battery_service']
                         });
 
                         vm.log(`Device selected: ${vm.device.name}`);
                         vm.device.addEventListener('gattserverdisconnected', vm.onDisconnected);
-                        
+
                         vm.log('Connecting to GATT Server...');
                         vm.server = await vm.device.gatt.connect();
+                        vm.log('GATT Server connected.');
 
                         vm.log('Getting Blood Pressure Service...');
                         const service = await vm.server.getPrimaryService(BLOOD_PRESSURE_SERVICE_UUID);
+                        vm.log('Service retrieved.');
 
                         vm.log('Getting Blood Pressure Measurement Characteristic...');
                         const characteristic = await service.getCharacteristic(BLOOD_PRESSURE_MEASUREMENT_CHARACTERISTIC_UUID);
+                        vm.log('Characteristic retrieved.');
 
                         vm.log('Starting notifications...');
                         await characteristic.startNotifications();
                         characteristic.addEventListener('characteristicvaluechanged', vm.handleNotifications);
-                        vm.log('Connected and subscribed to notifications.');
+                        vm.log('✅ Connected and subscribed to notifications. Waiting for data...');
 
                     } catch(error) {
-                        vm.log(`Error: ${error}`);
+                        vm.log(`⚠️ Error: ${error.message}`);
+                        document.getElementById('connectBtn').disabled = false;
                     }
                 };
 
-                vm.abort = async function() {
-                    if (vm.device && vm.server && vm.server.connected) {
+                vm.abort = function() {
+                    if (vm.device && vm.device.gatt.connected) {
                         vm.log('Disconnecting from device...');
-                        await vm.server.disconnect();
+                        vm.device.gatt.disconnect();
                     } else {
-                         vm.log('No device connected or already disconnected.');
+                        vm.log('No device connected or already disconnected.');
                     }
                     vm.clear();
+                    document.getElementById('connectBtn').disabled = false;
                 };
 
                 vm.onDisconnected = function() {
                     vm.log('Device disconnected.');
                     vm.device = null;
                     vm.server = null;
-                    if (window.codenameOne) {
-                        window.codenameOne.callJSON('onDataReady', '');
+                    document.getElementById('connectBtn').disabled = false;
+                    // Finalize data and notify Java side
+                    $scope.$applyAsync(() => {
+                        vm.jsonData = angular.toJson(vm.allMeasurements, true);
+                    });
+                    if (window.codenameOne && vm.allMeasurements.length > 0) {
+                         vm.log('Notifying app that data capture is complete.');
+                         window.codenameOne.callJSON('onDataReady', vm.jsonData);
                     }
                 };
 
+                // --- Data Parsing ---
+                const parseSFloat = (dataView, offset) => {
+                    const value = dataView.getUint16(offset, true);
+                    let mantissa = value & 0x0FFF;
+                    let exponent = value >> 12;
+                    if (exponent >= 8) {
+                        exponent = -((16 - exponent) & 0xF);
+                    }
+                    if (mantissa >= 2048) {
+                        mantissa = -((4096 - mantissa) & 0xFFF);
+                    }
+                    return mantissa * Math.pow(10, exponent);
+                };
+                
+                const parseTimestamp = (dataView, offset) => {
+                    const year = dataView.getUint16(offset, true);
+                    const month = dataView.getUint8(offset + 2) - 1; // JS months are 0-indexed
+                    const day = dataView.getUint8(offset + 3);
+                    const hours = dataView.getUint8(offset + 4);
+                    const minutes = dataView.getUint8(offset + 5);
+                    const seconds = dataView.getUint8(offset + 6);
+                    return new Date(year, month, day, hours, minutes, seconds).toISOString();
+                };
+
                 vm.handleNotifications = function(event) {
-                    const value = event.target.value;
-                    const measurements = [];
+                    const value = event.target.value; // This is a DataView
+                    vm.log(`Received notification with ${value.byteLength} bytes.`);
                     
                     const flags = value.getUint8(0);
-                    const isImperial = flags & 0x01;
+                    const isImperial = !(flags & 0x01); // 0 = mmHg, 1 = kPa
                     const hasTimestamp = flags & 0x02;
                     const hasPulseRate = flags & 0x04;
+                    const hasUserId = flags & 0x08;
                     
                     let index = 1;
-                    
-                    const systolic = value.getUint16(index, true);
-                    index += 2;
-                    const diastolic = value.getUint16(index, true);
-                    index += 2;
-                    const map = value.getUint16(index, true);
-                    index += 2;
 
                     const measurement = {
                         units: isImperial ? 'mmHg' : 'kPa',
-                        systolic: systolic,
-                        diastolic: diastolic,
-                        meanArterialPressure: map
+                        systolic: parseSFloat(value, index),
+                        diastolic: parseSFloat(value, index + 2),
+                        meanArterialPressure: parseSFloat(value, index + 4)
                     };
+                    index += 6;
 
                     if (hasTimestamp) {
+                        measurement.timestamp = parseTimestamp(value, index);
                         index += 7;
                     }
 
                     if (hasPulseRate) {
-                        measurement.pulseRate = value.getUint16(index, true);
+                        measurement.pulseRate = parseSFloat(value, index);
                         index += 2;
                     }
-
-                    measurements.push(measurement);
                     
-                    $scope.$apply(() => {
-                        vm.jsonData = angular.toJson(measurements, true);
-                        if (window.codenameOne) {
-                            window.codenameOne.callJSON('onDataReady', vm.jsonData);
-                        }
+                    if (hasUserId) {
+                        measurement.userId = value.getUint8(index);
+                        index += 1;
+                    }
+
+                    vm.allMeasurements.push(measurement);
+                    vm.log(`Parsed measurement: Sys: ${measurement.systolic}, Dia: ${measurement.diastolic}`);
+                    
+                    $scope.$applyAsync(() => {
+                        // Update JSON data live
+                        vm.jsonData = angular.toJson(vm.allMeasurements, true);
                     });
-                    
-                    vm.log('Received and parsed measurement.');
                 };
-
+                
+                // --- Functions for Java Bridge ---
                 vm.getJsonData = function() {
                     return vm.jsonData;
+                };
+
+                vm.getLogs = function() {
+                    return vm.logs;
                 };
             });
     </script>
