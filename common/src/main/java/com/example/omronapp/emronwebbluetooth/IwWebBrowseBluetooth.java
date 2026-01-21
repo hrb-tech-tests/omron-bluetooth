@@ -18,7 +18,7 @@ public class IwWebBrowseBluetooth extends BrowserComponent {
         
         try {
             // Load angular.min.js content
-            InputStream angularJsStream = getClass().getResourceAsStream( "/angular.min.js");  //  getClass().getResourceAsStream("angular.min.js");
+            InputStream angularJsStream = Display.getInstance().getResourceAsStream(null, "/angular.min.js");
             if (angularJsStream == null) {
                 throw new IOException("Resource 111122223 not found: angular.min.js");
             }

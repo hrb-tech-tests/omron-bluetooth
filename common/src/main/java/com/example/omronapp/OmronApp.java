@@ -7,7 +7,6 @@ import com.codename1.ui.layouts.*;
 import com.codename1.io.*;
 import com.codename1.ui.plaf.*;
 import com.codename1.ui.util.Resources;
-import com.example.omronapp.omron.OmronDebugForm;
 import com.example.omronapp.emronwebbluetooth.OmronWebBluetoothForm;
 
 /**
