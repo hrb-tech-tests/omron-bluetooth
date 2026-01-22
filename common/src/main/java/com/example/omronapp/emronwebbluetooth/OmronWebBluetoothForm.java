@@ -62,11 +62,11 @@ public class OmronWebBluetoothForm extends Form {
             capturedDataButton.setEnabled(hasData);
         });
 
-        // --- Add buttons to the SOUTH container ---
-        Container southContainer = new Container(new FlowLayout(Component.CENTER));
-        southContainer.add(capturedDataButton);
-        southContainer.add(abortButton);
-        add(BorderLayout.SOUTH, southContainer);
+        // --- Add buttons to the NORTH container ---
+        Container northContainer = new Container(new FlowLayout(Component.CENTER));
+        northContainer.add(capturedDataButton);
+        northContainer.add(abortButton);
+        add(BorderLayout.NORTH, northContainer);
         setScrollableY(true);
     }
 
