@@ -2,6 +2,7 @@ package com.example.omronapp.emronwebbluetooth;
 
 import com.codename1.ui.*;
 import com.codename1.ui.layouts.BorderLayout;
+import com.codename1.ui.layouts.FlowLayout;
 import com.codename1.ui.layouts.GridLayout;
 import com.codename1.ui.plaf.RoundBorder;
 import com.codename1.ui.plaf.Style;
@@ -62,12 +63,11 @@ public class OmronWebBluetoothForm extends Form {
         });
 
         // --- Add buttons to the SOUTH container ---
-        Container southContainer = new Container(new GridLayout(1, 4));
-        southContainer.add(new Label());
+        Container southContainer = new Container(new FlowLayout(Component.CENTER));
         southContainer.add(capturedDataButton);
         southContainer.add(abortButton);
-        southContainer.add(new Label());
         add(BorderLayout.SOUTH, southContainer);
+        setScrollableY(true);
     }
 
     /**
