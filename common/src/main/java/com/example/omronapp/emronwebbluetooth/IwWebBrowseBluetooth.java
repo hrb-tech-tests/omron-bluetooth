@@ -20,14 +20,14 @@ public class IwWebBrowseBluetooth extends BrowserComponent {
             // Load angular.min.js content
             InputStream angularJsStream = Display.getInstance().getResourceAsStream(null, "/angular.min.js");
             if (angularJsStream == null) {
-                throw new IOException("Resource 111122223 not found: angular.min.js");
+                throw new IOException("Resourc not found: angular.min.js");
             }
             String angularJsContent = Util.readToString(angularJsStream);
 
             // Load index.html content
             InputStream indexHtmlStream = Display.getInstance().getResourceAsStream(null, "/index.html");
             if (indexHtmlStream == null) {
-                throw new IOException("Resource 2222333334 not found: index.html");
+                throw new IOException("Resource not found: index.html");
             }
             String indexHtmlContent = Util.readToString(indexHtmlStream);
 
