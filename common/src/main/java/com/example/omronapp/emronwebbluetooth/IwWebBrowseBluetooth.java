@@ -15,6 +15,7 @@ public class IwWebBrowseBluetooth extends BrowserComponent {
 
     public IwWebBrowseBluetooth() {
         super();
+        setVirtualURL("https://omron.app.local");
         
         try {
             // Load angular.min.js content
