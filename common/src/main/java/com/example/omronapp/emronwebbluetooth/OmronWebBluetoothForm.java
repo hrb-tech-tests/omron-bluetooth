@@ -6,6 +6,9 @@ import com.codename1.ui.layouts.FlowLayout;
 import com.codename1.ui.layouts.GridLayout;
 import com.codename1.ui.plaf.RoundBorder;
 import com.codename1.ui.plaf.Style;
+import com.codename1.io.Log;
+import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
 
 public class OmronWebBluetoothForm extends Form {
 
@@ -15,6 +18,7 @@ public class OmronWebBluetoothForm extends Form {
 
     public OmronWebBluetoothForm() {
         super("IW OMRON Bluetooth v0.4.9", new BorderLayout());
+        requestBluetoothPermissions();
 
         // Reduce title font size
         com.codename1.ui.Toolbar tb = getToolbar(); // Get the toolbar
@@ -114,5 +118,53 @@ public class OmronWebBluetoothForm extends Form {
         style.setBorder(RoundBorder.create().rectangle(true).color(0xcccccc).strokeColor(0));
         style.setPadding(2, 2, 1, 1);
         style.setMargin(1, 1, 10, 5);
+    }
+
+    /**
+     * Requests necessary Bluetooth and Location permissions at runtime.
+     * This is crucial for Web Bluetooth functionality on Android.
+     */
+    private void requestBluetoothPermissions() {
+        if (!"and".equals(Display.getInstance().getPlatformName())) {
+            Log.p("Skipping permission check: Not on Android.");
+            return;
+        }
+        try {
+            Log.p("Checking Android permissions...");
+            String[] perms = {
+                "android.permission.BLUETOOTH",
+                "android.permission.BLUETOOTH_ADMIN",
+                "android.permission.ACCESS_COARSE_LOCATION",
+                "android.permission.ACCESS_FINE_LOCATION",
+                "android.permission.BLUETOOTH_SCAN",
+                "android.permission.BLUETOOTH_CONNECT"
+            };
+            
+            Class<?> displayClass = Class.forName("com.codename1.ui.Display");
+            Class<?> actionListenerClass = Class.forName("com.codename1.ui.events.ActionListener");
+            
+            java.lang.reflect.Method hasPermission = displayClass.getMethod("has" + "Permission", String.class);
+            java.lang.reflect.Method requestPermissions = displayClass.getMethod("request" + "Permissions", actionListenerClass, String[].class);
+
+            boolean allGranted = true;
+            for (String p : perms) {
+                if (!(Boolean) hasPermission.invoke(Display.getInstance(), p)) {
+                    Log.p("Missing permission: " + p);
+                    allGranted = false;
+                    break;
+                }
+            }
+
+            if (allGranted) {
+                Log.p("All required permissions are granted.");
+            } else {
+                Log.p("Requesting missing permissions...");
+                requestPermissions.invoke(Display.getInstance(), (ActionListener) evt -> {
+                    Log.p("Permission request dialog closed.");
+                }, perms);
+            }
+        } catch (Exception e) {
+            Log.p("Permission check failed catastrophically: " + e.getMessage());
+        }
     }
 }
