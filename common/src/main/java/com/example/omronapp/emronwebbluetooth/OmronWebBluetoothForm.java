@@ -14,7 +14,7 @@ public class OmronWebBluetoothForm extends Form {
     private final Button abortButton;
 
     public OmronWebBluetoothForm() {
-        super("IW OMRON Bluetooth", new BorderLayout());
+        super("IW OMRON Bluetooth v0.4.9", new BorderLayout());
 
         // Reduce title font size
         com.codename1.ui.Toolbar tb = getToolbar(); // Get the toolbar
