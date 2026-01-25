@@ -17,7 +17,7 @@ import com.example.omronapp.emronwebbluetooth.OmronWebBluetoothForm;
 public class OmronApp extends Lifecycle {
     @Override
     public void runApp() {
-        Display.getInstance().setProperty("android.WebView.grantPermissionsFrom", "https://omron.app.local");
+        Display.getInstance().setProperty("android.WebView.grantPermissionsFrom", "*");
         // Form hi = new Form("Hi World", BoxLayout.y());
         // Button helloButton = new Button("Hello World");
         // hi.add(helloButton);
