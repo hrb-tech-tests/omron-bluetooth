@@ -17,6 +17,10 @@ import com.codename1.impl.android.AndroidNativeUtil;
 import com.codename1.io.Log;
 import com.codename1.ui.Display;
 import com.codename1.ui.events.ActionEvent;
+import com.codename1.ui.events.ActionListener;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 public class MyNativeBluetoothImpl implements MyNativeBluetooth {
 
