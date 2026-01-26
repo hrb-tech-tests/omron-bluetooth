@@ -26,12 +26,12 @@ public class MyNativeBluetoothImpl implements MyNativeBluetooth {
 
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner bluetoothLeScanner;
-    private Map<String, BluetoothGatt> connectedGatts = new HashMap<>();
+    private Map<String, BluetoothGatt> connectedGatts = new HashMap<String, BluetoothGatt>();
     private Context context;
     private ActionListener<ActionEvent> onDeviceFoundListener;
-    private Map<String, ActionListener<ActionEvent>> onConnectedListeners = new HashMap<>();
-    private Map<String, ActionListener<ActionEvent>> onDataListeners = new HashMap<>();
-    private Map<String, ActionListener<ActionEvent>> onWriteListeners = new HashMap<>();
+    private Map<String, ActionListener<ActionEvent>> onConnectedListeners = new HashMap<String, ActionListener<ActionEvent>>();
+    private Map<String, ActionListener<ActionEvent>> onDataListeners = new HashMap<String, ActionListener<ActionEvent>>();
+    private Map<String, ActionListener<ActionEvent>> onWriteListeners = new HashMap<String, ActionListener<ActionEvent>>();
 
     private ScanCallback leScanCallback;
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
