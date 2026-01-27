@@ -9,7 +9,7 @@ public class MyBluetoothManager {
     private static MyBluetoothManager instance;
     private MyNativeBluetooth nativeBluetooth;
 
-    private List<String> foundDevices = new ArrayList<String>();
+    private List<String> foundDevices = new ArrayList<>();
     private String connectedDevice;
 
     private MyBluetoothManager() {
