@@ -26,8 +26,8 @@ public class MyBluetoothForm extends Form {
         Button scanButton = new Button("Scan");
         Button connectButton = new Button("Connect");
         Button disconnectButton = new Button("Disconnect");
-        deviceListModel = new DefaultListModel<>();
-        deviceList = new List<>(deviceListModel);
+        deviceListModel = new DefaultListModel<String>();
+        deviceList = new List<String>(deviceListModel);
         logArea = new TextArea(5, 20);
         jsonDataArea = new TextArea(5, 20);
 
