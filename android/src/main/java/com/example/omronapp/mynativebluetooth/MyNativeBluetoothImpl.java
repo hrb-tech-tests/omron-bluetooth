@@ -28,17 +28,16 @@ public class MyNativeBluetoothImpl implements MyNativeBluetooth {
     private BluetoothLeScanner bluetoothLeScanner;
     private Map<String, BluetoothGatt> connectedGatts = new HashMap<String, BluetoothGatt>();
     private Context context;
-    private ActionListener<ActionEvent> onDeviceFoundListener;
-    private Map<String, ActionListener<ActionEvent>> onConnectedListeners = new HashMap<String, ActionListener<ActionEvent>>();
-    private Map<String, ActionListener<ActionEvent>> onDataListeners = new HashMap<String, ActionListener<ActionEvent>>();
-    private Map<String, ActionListener<ActionEvent>> onWriteListeners = new HashMap<String, ActionListener<ActionEvent>>();
+    private ActionListener onDeviceFoundListener;
+    private Map<String, ActionListener> onConnectedListeners = new HashMap<String, ActionListener>();
+    private Map<String, ActionListener> onDataListeners = new HashMap<String, ActionListener>();
+    private Map<String, ActionListener> onWriteListeners = new HashMap<String, ActionListener>();
 
     private ScanCallback leScanCallback;
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             String deviceId = gatt.getDevice().getAddress();
-            ActionListener<ActionEvent> listener = onConnectedListeners.get(deviceId);
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.p("[MyNativeBluetoothImpl] Connected to " + deviceId);
                 connectedGatts.put(deviceId, gatt);
@@ -47,25 +46,42 @@ public class MyNativeBluetoothImpl implements MyNativeBluetooth {
                 Log.p("[MyNativeBluetoothImpl] Disconnected from " + deviceId);
                 gatt.close();
                 connectedGatts.remove(deviceId);
+                final ActionListener listener = onConnectedListeners.get(deviceId);
                 if (listener != null) {
-                    Display.getInstance().callSerially(() -> listener.actionPerformed(new ActionEvent(false)));
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            listener.actionPerformed(new ActionEvent(false));
+                        }
+                    });
                 }
             }
         }
 
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-            String deviceId = gatt.getDevice().getAddress();
-            ActionListener<ActionEvent> listener = onConnectedListeners.get(deviceId);
+            final String deviceId = gatt.getDevice().getAddress();
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.p("[MyNativeBluetoothImpl] Services discovered for " + deviceId);
+                final ActionListener listener = onConnectedListeners.get(deviceId);
                 if (listener != null) {
-                    Display.getInstance().callSerially(() -> listener.actionPerformed(new ActionEvent(true)));
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            listener.actionPerformed(new ActionEvent(true));
+                        }
+                    });
                 }
             } else {
                 Log.p("[MyNativeBluetoothImpl] onServicesDiscovered received: " + status);
+                final ActionListener listener = onConnectedListeners.get(deviceId);
                 if (listener != null) {
-                    Display.getInstance().callSerially(() -> listener.actionPerformed(new ActionEvent(false)));
+                    Display.getInstance().callSerially(new Runnable() {
+                        @Override
+                        public void run() {
+                            listener.actionPerformed(new ActionEvent(false));
+                        }
+                    });
                 }
             }
         }
@@ -73,40 +89,73 @@ public class MyNativeBluetoothImpl implements MyNativeBluetooth {
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
             String deviceId = gatt.getDevice().getAddress();
-            ActionListener<ActionEvent> listener = onDataListeners.get(deviceId + characteristic.getUuid().toString());
+            String key = deviceId + characteristic.getUuid().toString();
+            ActionListener listener = onDataListeners.get(key);
             if (listener != null) {
-                Display.getInstance().callSerially(() -> listener.actionPerformed(new ActionEvent(characteristic.getValue())));
+                final byte[] value = characteristic.getValue();
+                Display.getInstance().callSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        listener.actionPerformed(new ActionEvent(value));
+                    }
+                });
+            } else {
+                Log.p("[MyNativeBluetoothImpl] No data listener for key: " + key);
             }
+        }
+
+        // Add older version of onCharacteristicChanged for compatibility
+        public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
+            onCharacteristicChanged(gatt, characteristic);
         }
 
         @Override
         public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
             String deviceId = gatt.getDevice().getAddress();
-            ActionListener<ActionEvent> listener = onWriteListeners.get(deviceId + characteristic.getUuid().toString());
+            String key = deviceId + characteristic.getUuid().toString();
+            final ActionListener listener = onWriteListeners.get(key);
             if (listener != null) {
-                Display.getInstance().callSerially(() -> listener.actionPerformed(new ActionEvent(status == BluetoothGatt.GATT_SUCCESS)));
+                final boolean success = (status == BluetoothGatt.GATT_SUCCESS);
+                Display.getInstance().callSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        listener.actionPerformed(new ActionEvent(success));
+                    }
+                });
+            } else {
+                Log.p("[MyNativeBluetoothImpl] No write listener for key: " + key);
             }
         }
     };
 
 
     @Override
-    public void initialize(ActionListener<ActionEvent> onInitialized) {
+    public void initialize(final ActionListener onInitialized) {
         context = AndroidNativeUtil.getActivity();
         final BluetoothManager bluetoothManager = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
         bluetoothAdapter = bluetoothManager.getAdapter();
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
             Log.p("[MyNativeBluetoothImpl] Bluetooth is not supported or not enabled.");
-            Display.getInstance().callSerially(() -> onInitialized.actionPerformed(new ActionEvent(false)));
+            Display.getInstance().callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    onInitialized.actionPerformed(new ActionEvent(false));
+                }
+            });
             return;
         }
         bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
         Log.p("[MyNativeBluetoothImpl] Initialization successful.");
-        Display.getInstance().callSerially(() -> onInitialized.actionPerformed(new ActionEvent(true)));
+        Display.getInstance().callSerially(new Runnable() {
+            @Override
+            public void run() {
+                onInitialized.actionPerformed(new ActionEvent(true));
+            }
+        });
     }
 
     @Override
-    public void startScan(ActionListener<ActionEvent> onDeviceFound) {
+    public void startScan(ActionListener onDeviceFound) {
         this.onDeviceFoundListener = onDeviceFound;
         leScanCallback = new ScanCallback() {
             @Override
@@ -114,10 +163,14 @@ public class MyNativeBluetoothImpl implements MyNativeBluetooth {
                 super.onScanResult(callbackType, result);
                 BluetoothDevice device = result.getDevice();
                 String deviceName = device.getName();
-                if (deviceName != null && !deviceName.isEmpty()) {
-                    Log.p("[MyNativeBluetoothImpl] Device found: " + deviceName + " (" + device.getAddress() + ")");
-                    Display.getInstance().callSerially(() -> onDeviceFoundListener.actionPerformed(new ActionEvent(device.getAddress())));
-                }
+                Log.p("[MyNativeBluetoothImpl] Device found: " + (deviceName != null ? deviceName : "Unknown") + " (" + device.getAddress() + ")");
+                final String address = device.getAddress();
+                Display.getInstance().callSerially(new Runnable() {
+                    @Override
+                    public void run() {
+                        onDeviceFoundListener.actionPerformed(new ActionEvent(address));
+                    }
+                });
             }
         };
         bluetoothLeScanner.startScan(leScanCallback);
@@ -134,23 +187,37 @@ public class MyNativeBluetoothImpl implements MyNativeBluetooth {
     }
 
     @Override
-    public void connect(String deviceId, ActionListener<ActionEvent> onConnected) {
+    public void connect(String deviceId, final ActionListener onConnected) {
         BluetoothDevice device = bluetoothAdapter.getRemoteDevice(deviceId);
         if (device == null) {
             Log.p("[MyNativeBluetoothImpl] Device not found: " + deviceId);
-            Display.getInstance().callSerially(() -> onConnected.actionPerformed(new ActionEvent(false)));
+            Display.getInstance().callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    onConnected.actionPerformed(new ActionEvent(false));
+                }
+            });
             return;
         }
         
         if (connectedGatts.containsKey(deviceId)) {
             Log.p("[MyNativeBluetoothImpl] Already connected to " + deviceId);
-            Display.getInstance().callSerially(() -> onConnected.actionPerformed(new ActionEvent(true)));
+            Display.getInstance().callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    onConnected.actionPerformed(new ActionEvent(true));
+                }
+            });
             return;
         }
 
         onConnectedListeners.put(deviceId, onConnected);
         Log.p("[MyNativeBluetoothImpl] Connecting to " + deviceId);
-        device.connectGatt(context, false, gattCallback);
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            device.connectGatt(context, false, gattCallback, 2); // 2 = TRANSPORT_LE
+        } else {
+            device.connectGatt(context, false, gattCallback);
+        }
     }
 
     @Override
@@ -163,7 +230,7 @@ public class MyNativeBluetoothImpl implements MyNativeBluetooth {
     }
 
     @Override
-    public void subscribe(String deviceId, String serviceUUID, String characteristicUUID, ActionListener<ActionEvent> onData) {
+    public void subscribe(String deviceId, String serviceUUID, String characteristicUUID, ActionListener onData) {
         BluetoothGatt gatt = connectedGatts.get(deviceId);
         if (gatt == null) {
             Log.p("[MyNativeBluetoothImpl] Not connected to " + deviceId);
@@ -190,31 +257,51 @@ public class MyNativeBluetoothImpl implements MyNativeBluetooth {
     }
 
     @Override
-    public void write(String deviceId, String serviceUUID, String characteristicUUID, byte[] data, ActionListener<ActionEvent> onWrite) {
+    public void write(String deviceId, String serviceUUID, String characteristicUUID, byte[] data, final ActionListener onWrite) {
         BluetoothGatt gatt = connectedGatts.get(deviceId);
         if (gatt == null) {
             Log.p("[MyNativeBluetoothImpl] Not connected to " + deviceId);
-            Display.getInstance().callSerially(() -> onWrite.actionPerformed(new ActionEvent(false)));
+            Display.getInstance().callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    onWrite.actionPerformed(new ActionEvent(false));
+                }
+            });
             return;
         }
         BluetoothGattService service = gatt.getService(UUID.fromString(serviceUUID));
         if (service == null) {
             Log.p("[MyNativeBluetoothImpl] Service not found: " + serviceUUID);
-            Display.getInstance().callSerially(() -> onWrite.actionPerformed(new ActionEvent(false)));
+            Display.getInstance().callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    onWrite.actionPerformed(new ActionEvent(false));
+                }
+            });
             return;
         }
         BluetoothGattCharacteristic characteristic = service.getCharacteristic(UUID.fromString(characteristicUUID));
         if (characteristic == null) {
             Log.p("[MyNativeBluetoothImpl] Characteristic not found: " + characteristicUUID);
-            Display.getInstance().callSerially(() -> onWrite.actionPerformed(new ActionEvent(false)));
+            Display.getInstance().callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    onWrite.actionPerformed(new ActionEvent(false));
+                }
+            });
             return;
         }
+        onWriteListeners.put(deviceId + characteristicUUID, onWrite);
         characteristic.setValue(data);
         characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-        onWriteListeners.put(deviceId + characteristicUUID, onWrite);
         if (!gatt.writeCharacteristic(characteristic)) {
             Log.p("[MyNativeBluetoothImpl] Failed to write characteristic");
-            Display.getInstance().callSerially(() -> onWrite.actionPerformed(new ActionEvent(false)));
+            Display.getInstance().callSerially(new Runnable() {
+                @Override
+                public void run() {
+                    onWrite.actionPerformed(new ActionEvent(false));
+                }
+            });
         }
     }
     
